@@ -314,7 +314,13 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool) -> 
     turn_sha = emo.sha(x)
     box_emo: dict = {}
 
-    if parallel_emotion:
+    if clf is None:
+        # ablation arm: no perception stage at all, so the emotion cost can be
+        # priced by subtraction against an otherwise identical run
+        box_emo = {"emotion": "neutral", "confidence": None, "probs": None,
+                   "ms": 0.0, "audio_sha": turn_sha, "fed_samples": 0,
+                   "truncated": False, "ablated": True}
+    elif parallel_emotion:
         t_emo0 = time.perf_counter()
         ew = threading.Thread(
             target=lambda: box_emo.update(clf.predict(x, audio.SR)), daemon=True)
@@ -325,7 +331,10 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool) -> 
     final = asr.text(x)
     t_final = time.perf_counter()
 
-    if parallel_emotion:
+    if clf is None:
+        t_emo = time.perf_counter()
+        emotion_stage_ms = 0.0
+    elif parallel_emotion:
         ew.join(timeout=30.0)
         t_emo = time.perf_counter()
         # what the overlap actually cost the gap: only the part of the classifier
@@ -482,13 +491,14 @@ def render_prompts(voice, texts, lead_ms=300.0, tail_ms=900.0):
 
 
 def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
-        use_cue=True, parallel_emotion=False, prompt_wavs=None, save_wavs=None) -> dict:
+        use_cue=True, parallel_emotion=False, prompt_wavs=None, save_wavs=None,
+        no_emotion=False) -> dict:
     load0 = os.getloadavg()
     voice = pick_voice(tts_backend)
     prompt_voice = pick_voice("auto")
     t0 = time.perf_counter()
     asr, partial_asr, lm = Asr(), Asr(PARTIAL_MODEL), Lm()
-    clf = emo.Classifier()
+    clf = None if no_emotion else emo.Classifier()
     load_ms = (time.perf_counter() - t0) * 1000.0
     player = Player(device)
 
@@ -501,7 +511,8 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
     t0 = time.perf_counter()
     asr.text(prompts[0][1])
     partial_asr.text(prompts[0][1])
-    clf.predict(prompts[0][1], audio.SR)
+    if clf is not None:
+        clf.predict(prompts[0][1], audio.SR)
     lm.first_sentence("Hello.", prosody.hint_for("neutral"))
     voice.synth("Ready.", cfg=prosody.PRESETS[voice.backend]["neutral"])
     warm_ms = (time.perf_counter() - t0) * 1000.0
@@ -547,10 +558,13 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
         "asr": {"final_model": asr.name, "partial_model": partial_asr.name,
                 "mode": "chunked, whole-buffer re-decode",
                 "partial_every_ms": PARTIAL_EVERY_MS},
-        "emotion": {"ckpt": str(clf.ckpt), "device": clf.device,
+        "emotion": {"ckpt": None if clf is None else str(clf.ckpt),
+                    "device": None if clf is None else clf.device,
                     "classes": emo.EMOTIONS,
-                    "schedule": "parallel with ASR final decode" if parallel_emotion
-                                else "serial, after the ASR final decode",
+                    "schedule": "ABLATED -- no classifier ran, every turn spoken neutral"
+                                if clf is None else
+                                ("parallel with ASR final decode" if parallel_emotion
+                                 else "serial, after the ASR final decode"),
                     "trained_on": "CREMA-D, acted speech, actor-disjoint split",
                     "reported_test_acc_vs_intent": 0.749,
                     "reported_test_acc_vs_consensus": 0.522},
@@ -639,7 +653,7 @@ def selfcheck(n_turns: int = 3, **kw) -> dict:
         assert t["detected_emotion"] in emo.EMOTIONS, f"turn {n}: bad label"
         assert t["prosody_preset"] == prosody.EMOTION_TO_PRESET[t["detected_emotion"]], (
             f"turn {n}: spoke with {t['prosody_preset']} for {t['detected_emotion']}")
-        if res["emotion"]["schedule"].startswith("serial"):
+        if res["emotion"]["schedule"].startswith("serial"):  # noqa: SIM102
             assert t["stage_ms"]["emotion_ms"] > 0, f"turn {n}: emotion stage not timed"
 
         if t["cue"]:
@@ -676,15 +690,24 @@ def main():
                     help="run the classifier alongside the ASR final decode")
     ap.add_argument("--prompt-wav", action="append",
                     help="use these wavs as the user turns instead of TTS prompts")
+    ap.add_argument("--prompt-wav-dir",
+                    help="use every wav in this directory as the user turns")
+    ap.add_argument("--no-emotion", action="store_true",
+                    help="ablation: skip the classifier entirely, speak everything neutral")
     a = ap.parse_args()
     if a.cmd == "devices":
         import sounddevice as sd  # noqa: PLC0415
 
         print(sd.query_devices())
         return
+    wavs = a.prompt_wav
+    if a.prompt_wav_dir:
+        wavs = sorted(str(p) for p in Path(a.prompt_wav_dir).glob("*.wav"))
+        if not wavs:
+            raise SystemExit(f"no wavs in {a.prompt_wav_dir}")
     kw = dict(device=a.device, mic=a.mic, tts_backend=a.tts, use_cue=not a.no_cue,
-              parallel_emotion=a.emotion_parallel, prompt_wavs=a.prompt_wav,
-              save_wavs=a.save_wavs)
+              parallel_emotion=a.emotion_parallel, prompt_wavs=wavs,
+              save_wavs=a.save_wavs, no_emotion=a.no_emotion)
     if a.cmd == "selfcheck":
         selfcheck(n_turns=a.n if a.n < 20 else 3, **kw)
     else:
