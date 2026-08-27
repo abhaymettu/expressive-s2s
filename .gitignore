@@ -9,5 +9,4 @@ runs/**/*.wav
 data/raw/
 .DS_Store
 runs/user-turns/
-runs/**/*.wav
 *.egg-info/
