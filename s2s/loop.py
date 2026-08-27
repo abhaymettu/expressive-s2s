@@ -100,14 +100,16 @@ SAY_VOICE = "Alex"  # the voice expressive-tts-audit measured; pbas/volm work on
 
 def pick_voice(which: str = "auto"):
     """`auto` and `piper` -> the piper voice in models/piper/. `say` -> macOS
-    `say` with the Alex voice, explicitly, never by autodetect fallback."""
+    `say` with the Alex voice, explicitly, never by autodetect fallback.
+    `transplant` -> that same piper voice with an F0 contour imposed on its
+    output by WORLD resynthesis (vendor/transplant.py)."""
     if which == "say":
         return tts.Voice("say", name=SAY_VOICE)
     found = sorted((ROOT / "models" / "piper").glob("*.onnx"))
     if found:
-        return tts.Voice("piper", name=str(found[0]))
-    if which == "piper":
-        raise RuntimeError("piper requested but no .onnx voice in models/piper/")
+        return tts.Voice("piper" if which == "auto" else which, name=str(found[0]))
+    if which in ("piper", "transplant"):
+        raise RuntimeError(f"{which} requested but no .onnx voice in models/piper/")
     return tts.default_voice()
 
 
@@ -272,7 +274,7 @@ class FastPath:
 
     def _work(self, x: np.ndarray, seq: int) -> None:
         box_emo: dict = {}
-        t_final0 = time.perf_counter()
+        t_final0 = t_emo0 = time.perf_counter()
         if self.clf is None:
             box_emo = {"emotion": "neutral", "confidence": None, "probs": None,
                        "ms": 0.0, "audio_sha": emo.sha(x), "fed_samples": 0,
@@ -287,6 +289,7 @@ class FastPath:
             if self.parallel_emotion:
                 ew.join(timeout=30.0)
             else:
+                t_emo0 = time.perf_counter()
                 box_emo.update(self.clf.predict(x, audio.SR))
         t_emo = time.perf_counter()
         detected = box_emo["emotion"]
@@ -299,7 +302,8 @@ class FastPath:
             "seq": seq, "transcript": text, "sentence": sentence, "n_tok": n_tok,
             "audio": y, "emotion": box_emo, "preset": preset_name, "cfg": cfg,
             "pipeline_audio": x,
-            "t_final0": t_final0, "t_final": t_final, "t_emotion": t_emo,
+            "t_final0": t_final0, "t_final": t_final,
+            "t_emotion0": t_emo0, "t_emotion": t_emo,
             "t_tok": t_tok, "t_sent": t_sent, "t_tts0": t_tts0,
             "t_tts": time.perf_counter(),
         }
@@ -489,6 +493,7 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
             "partial_text": partial["text"],
             "t_final0": early["t_final0"],
             "t_final": early["t_final"],
+            "t_emotion0": early["t_emotion0"],
             "t_emotion": early["t_emotion"],
             "emotion": early["emotion"],
             "emotion_standalone_ms": early["emotion"]["ms"],
@@ -510,6 +515,7 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
                    "ms": 0.0, "audio_sha": turn_sha, "fed_samples": 0,
                    "truncated": False, "ablated": True}
     elif parallel_emotion:
+        t_emo0 = time.perf_counter()
         ew = threading.Thread(
             target=lambda: box_emo.update(clf.predict(x, audio.SR)), daemon=True)
         ew.start()
@@ -519,9 +525,12 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
     final = asr.text(x)
     t_final = time.perf_counter()
 
-    if clf is not None and parallel_emotion:
+    if clf is None:
+        t_emo0 = time.perf_counter()
+    elif parallel_emotion:
         ew.join(timeout=30.0)
-    elif clf is not None:
+    else:
+        t_emo0 = time.perf_counter()
         box_emo.update(clf.predict(x, audio.SR))
     t_emo = time.perf_counter()
 
@@ -547,6 +556,7 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
         "partial_text": partial["text"],
         "t_final0": t_final0,
         "t_final": t_final,
+        "t_emotion0": t_emo0,
         "t_emotion": t_emo,
         "emotion": box_emo,
         "emotion_standalone_ms": box_emo["ms"],
@@ -666,7 +676,10 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
         # inside the hangover can still be compared across configs.
         "work_ms": {
             "asr_final": ms(cap["t_final"], cap["t_final0"]),
-            "emotion": cap["emotion_standalone_ms"],
+            # the emotion stage on the same outside clock as every other
+            # stage. emotion_standalone_ms keeps the classifier's own internal
+            # clock, which is the 45ms figure the README quotes.
+            "emotion": ms(cap["t_emotion"], cap["t_emotion0"]),
             "lm_ttft": ms(t_tok, cap["t_emotion"]),
             "lm_sentence": ms(t_sent, t_tok),
             "tts": ms(t_tts, t_tts0),
@@ -830,6 +843,11 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
                     "piper exposes no pitch knob; its four presets span 2 Hz of mean F0 "
                     "and are recovered from acoustics at 49.3% vs 25% chance"
                     if voice.backend == "piper" else
+                    "piper plus an imposed F0 contour (WORLD resynthesis). Its four "
+                    "presets are recovered from acoustics at 100% [97.4, 100.0] vs "
+                    "52.8% [44.7, 60.8] for piper alone, n=144 each. "
+                    "Source: prosody-transplant"
+                    if voice.backend == "transplant" else
                     "say spans 246 Hz of mean F0 and its presets are recovered at 95.8%, "
                     "but pmod is inert and each utterance is a cold subprocess "
                     "(~2.6s). Source: expressive-tts-audit"},
@@ -978,7 +996,8 @@ def main():
     ap.add_argument("--save-wavs")
     ap.add_argument("--device")
     ap.add_argument("--mic", action="store_true")
-    ap.add_argument("--tts", default="auto", choices=["auto", "piper", "say"])
+    ap.add_argument("--tts", default="auto",
+                    choices=["auto", "piper", "say", "transplant"])
     ap.add_argument("--no-cue", action="store_true")
     ap.add_argument("--emotion-parallel", action="store_true",
                     help="run the classifier alongside the ASR final decode")

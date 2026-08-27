@@ -9,6 +9,12 @@
 #   say    ->  the [[rate N]][[pbas N]][[pmod N]][[volm N]] embedded-command
 #              prefix Apple documents in the Speech Synthesis Programming Guide
 #
+# THE SECOND MODIFICATION: a third backend, `transplant`. It is the piper
+# backend with an F0 contour imposed on its output by WORLD analysis/resynthesis
+# (vendor/transplant.py, from ~/Desktop/Playground/prosody-transplant). Piper
+# has no pitch knob; this bolts one on from outside. See vendor/transplant.py
+# for what that repo measured.
+#
 # Both knob sets and their neutral values come from
 # ~/Desktop/Playground/expressive-tts-audit/render.py, which measured which of
 # them actually move an acoustic feature. Upstream synthesizes every utterance
@@ -62,12 +68,12 @@ class Voice:
         self.backend = backend or self._autodetect()
         self.name = name
         self._piper = None
-        if self.backend == "piper":
+        if self.backend in ("piper", "transplant"):
             from piper import PiperVoice  # noqa: PLC0415
 
             voice_path = Path(name) if name else _find_piper_voice()
             if voice_path is None:
-                raise RuntimeError("piper backend selected but no .onnx voice found")
+                raise RuntimeError(f"{self.backend} backend selected but no .onnx voice found")
             self._piper = PiperVoice.load(str(voice_path))
             self.name = str(voice_path)
         elif self.backend == "say":
@@ -96,7 +102,12 @@ class Voice:
         text = text.strip()
         if not text:
             return np.zeros(0, dtype=np.float32)
-        x = self._piper_synth(text, cfg) if self.backend == "piper" else self._say_synth(text, cfg)
+        if self.backend == "transplant":
+            x = self._transplant_synth(text, cfg)
+        elif self.backend == "piper":
+            x = self._piper_synth(text, cfg)
+        else:
+            x = self._say_synth(text, cfg)
         return audio.trim(x) if trim else x
 
     def synth_timed(self, text: str, trim: bool = True) -> tuple[np.ndarray, float]:
@@ -127,6 +138,18 @@ class Voice:
                 np.linspace(0, len(x) - 1, n), np.arange(len(x)), x.astype(np.float64)
             ).astype(np.float32)
         return x
+
+    def _transplant_synth(self, text: str, cfg: dict | None = None) -> np.ndarray:
+        """Piper, then the F0 contour imposed on it. `cfg` is a
+        `vendor.transplant.Target` field dict -- duration and volume go to piper
+        natively (it does those correctly and for free), pitch goes to WORLD."""
+        from . import transplant  # noqa: PLC0415
+
+        tgt = transplant.Target(**cfg) if cfg else transplant.PRESETS["neutral"]
+        x = self._piper_synth(
+            text, {"length_scale": tgt.length_scale, "volume": tgt.volume,
+                   "noise_scale": 0.667, "noise_w_scale": 0.8})
+        return transplant.world_transplant(x, tgt, sr=audio.SR)
 
     def _say_synth(self, text: str, cfg: dict | None = None) -> np.ndarray:
         if cfg:

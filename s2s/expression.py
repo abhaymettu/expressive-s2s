@@ -297,8 +297,13 @@ def demo():
 
     v = pick_voice("piper")
     text = "The annual pass is ninety dollars."
-    fast = _feats(v.synth(text, cfg=prosody.PIPER_PRESETS["excited"]), text)
-    slow = _feats(v.synth(text, cfg=prosody.PIPER_PRESETS["sad"]), text)
+    # length_scale alone, every other knob held at neutral. The excited and sad
+    # presets differ on noise_w_scale too, which moves duration the *other* way,
+    # so comparing whole presets made this assertion flake at the 1.2x threshold
+    # -- it was testing two knobs fighting rather than the one it names.
+    lenscale = lambda s: dict(prosody.PIPER_PRESETS["neutral"], length_scale=s)  # noqa: E731
+    fast = _feats(v.synth(text, cfg=lenscale(0.80)), text)
+    slow = _feats(v.synth(text, cfg=lenscale(1.30)), text)
     sv = pick_voice("say")
     lo = _feats(sv.synth(text, cfg=dict(rate=180, pbas=30, pmod=50, volm=1.0)), text)
     hi = _feats(sv.synth(text, cfg=dict(rate=180, pbas=70, pmod=50, volm=1.0)), text)
@@ -311,8 +316,19 @@ def demo():
         assert not bad, f"{name}: NaN features {bad}"
     assert slow["duration"] > fast["duration"] * 1.2, (fast["duration"], slow["duration"])
     assert fast["speech_rate"] > slow["speech_rate"], (fast["speech_rate"], slow["speech_rate"])
+
+    # The third backend exists precisely to give piper the pitch knob it does
+    # not have, so the same assertion that catches a disconnected `say` has to
+    # be made against it -- and it is the one that would fail if the WORLD
+    # round trip were silently passing piper's own audio through.
+    tv = pick_voice("transplant")
+    tlo = _feats(tv.synth(text, cfg=prosody.TRANSPLANT_PRESETS["sad"]), text)
+    thi = _feats(tv.synth(text, cfg=prosody.TRANSPLANT_PRESETS["excited"]), text)
+    assert thi["f0_mean"] > tlo["f0_mean"] * 1.5, ("the F0 transplant moved no F0",
+                                                   tlo["f0_mean"], thi["f0_mean"])
     print(f"expression self-check OK  (piper duration {fast['duration']:.2f}s excited -> "
           f"{slow['duration']:.2f}s sad; say f0 {lo['f0_mean']:.0f} -> {hi['f0_mean']:.0f} Hz; "
+          f"transplant f0 {tlo['f0_mean']:.0f} -> {thi['f0_mean']:.0f} Hz; "
           f"{len(features.FEATURES)} features, no NaNs)")
 
 

@@ -42,6 +42,10 @@ abstaining.
 
 from __future__ import annotations
 
+import dataclasses
+
+from vendor import transplant
+
 # --- copied from expressive-tts-audit/render.py -----------------------------
 PIPER_PRESETS = {
     "neutral":  dict(length_scale=1.00, noise_scale=0.667, noise_w_scale=0.80, volume=1.0),
@@ -57,7 +61,17 @@ SAY_PRESETS = {
     "emphatic": dict(rate=165, pbas=55, pmod=95, volm=1.0),
 }
 
-PRESETS = {"piper": PIPER_PRESETS, "say": SAY_PRESETS}
+# --- the third engine, from prosody-transplant -------------------------------
+# Piper with an F0 contour imposed on its output by WORLD resynthesis. These are
+# the four `Target`s that repo shipped, verbatim; see vendor/transplant.py for
+# how they were derived and why `sad` is clipped. The point of this backend is
+# that it breaks the tradeoff the two above define: piper's four presets are
+# recovered from acoustics at 52.8% [44.7, 60.8], these at 100% [97.4, 100.0]
+# (n=144 each, chance 25%), for ~75 ms of extra synthesis instead of ~634 ms.
+TRANSPLANT_PRESETS = {n: dataclasses.asdict(t) for n, t in transplant.PRESETS.items()}
+
+PRESETS = {"piper": PIPER_PRESETS, "say": SAY_PRESETS,
+           "transplant": TRANSPLANT_PRESETS}
 
 EMOTION_TO_PRESET = {
     "anger":   "emphatic",
