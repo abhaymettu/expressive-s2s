@@ -23,7 +23,28 @@ from vendor import audio, cues
 DEMO_SR = 16000  # half the loop's 22050, for a committable file size
 
 
-def build(run_json: str, out_wav: str, turns: int = 4, lead_ms: float = 400.0):
+def pick(run, n: int, spread: bool):
+    """Which turns go in the demo.
+
+    `spread` takes one turn per distinct detected emotion, in turn order, so a
+    listener hears the voice actually change instead of four turns of whatever
+    the classifier happened to say first. It is a listening aid, not a result:
+    the distribution over all turns is in the run JSON and in the README, and
+    it is not this flattering.
+    """
+    ts = run["turns"]
+    if not spread:
+        return ts[:n]
+    seen, out = set(), []
+    for t in ts:
+        if t["detected_emotion"] not in seen:
+            seen.add(t["detected_emotion"])
+            out.append(t)
+    return out[:n]
+
+
+def build(run_json: str, out_wav: str, turns: int = 4, lead_ms: float = 400.0,
+          spread: bool = True):
     run = json.loads(Path(run_json).read_text())
     from s2s.loop import PROMPTS, pick_voice  # noqa: PLC0415
 
@@ -33,7 +54,7 @@ def build(run_json: str, out_wav: str, turns: int = 4, lead_ms: float = 400.0):
     stim_dir = Path("runs/user-turns")
     out = [np.zeros(audio.samples(lead_ms), np.float32)]
     lines = []
-    for t in run["turns"][:turns]:
+    for t in pick(run, turns, spread):
         # prefer the exact wav the loop was fed. For a CREMA-D-driven run that is
         # a real person, which is the whole point of playing it to someone.
         stim = stim_dir / f"{t['label']}.wav"
@@ -81,5 +102,7 @@ if __name__ == "__main__":
     ap.add_argument("run_json")
     ap.add_argument("out_wav")
     ap.add_argument("--turns", type=int, default=4)
+    ap.add_argument("--first", action="store_true",
+                    help="first N turns instead of one per distinct detected emotion")
     a = ap.parse_args()
-    build(a.run_json, a.out_wav, a.turns)
+    build(a.run_json, a.out_wav, a.turns, spread=not a.first)
