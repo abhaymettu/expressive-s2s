@@ -44,3 +44,4 @@ $PY -m s2s.endpoint_check runs/a-piper-prompts.json runs/b-crema-piper.json runs
 
 echo "== demo =="
 $PY -m demo.record_demo runs/b-crema-piper.json demo/exchange.wav --turns 4
+$PY -m demo.record_demo runs/c-crema-say.json demo/exchange-expressive.wav --turns 4

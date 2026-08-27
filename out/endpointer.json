@@ -18,5 +18,15 @@
     "n_cut_the_user_off": 0,
     "frac_cut_off": 0.0,
     "turns_cut_off": []
+  },
+  "runs/c-crema-say.json": {
+    "n": 24,
+    "design_constant_ms": 350.0,
+    "hangover_median_ms": 288.4,
+    "hangover_min_ms": 1.6,
+    "hangover_max_ms": 699.1,
+    "n_cut_the_user_off": 0,
+    "frac_cut_off": 0.0,
+    "turns_cut_off": []
   }
 }

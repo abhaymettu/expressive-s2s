@@ -1,0 +1,205 @@
+{
+  "ckpt": "/Users/abhay/Desktop/Playground/expressive-s2s/models/wav2vec2-base-intended_emotion-actor-s0.pt",
+  "device": "mps",
+  "in_domain": {
+    "source": "CREMA-D held-out test actors (actor-disjoint)",
+    "n": 300,
+    "acc_vs_intended": 0.73,
+    "reported_by_training_run": 0.749,
+    "note": "sampled subset of the 1640-clip test set, so it will not land exactly on the reported figure; it should land near it."
+  },
+  "out_of_domain": {
+    "source": "piper en_US-lessac-medium, the loop's own prompt utterances, rendered under each prosody preset",
+    "ground_truth": null,
+    "n": 30,
+    "pred_counts": {
+      "sad": 2,
+      "anger": 23,
+      "neutral": 5
+    },
+    "median_confidence": 0.7292,
+    "rows": [
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "emphatic",
+        "pred": "sad",
+        "conf": 0.6048
+      },
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.7393
+      },
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "sad",
+        "pred": "neutral",
+        "conf": 0.5882
+      },
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "excited",
+        "pred": "anger",
+        "conf": 0.5277
+      },
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "neutral",
+        "pred": "neutral",
+        "conf": 0.4936
+      },
+      {
+        "text": "What time do you close on Sunday?",
+        "spoken_as": "sad",
+        "pred": "neutral",
+        "conf": 0.5597
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "emphatic",
+        "pred": "anger",
+        "conf": 0.7704
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.9579
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.8688
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "excited",
+        "pred": "anger",
+        "conf": 0.8829
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.9
+      },
+      {
+        "text": "Is there parking near the entrance?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.9372
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "emphatic",
+        "pred": "anger",
+        "conf": 0.6764
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.7525
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.5971
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "excited",
+        "pred": "anger",
+        "conf": 0.6992
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.6921
+      },
+      {
+        "text": "How much does the annual pass cost?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.7539
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "emphatic",
+        "pred": "sad",
+        "conf": 0.4194
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "neutral",
+        "pred": "neutral",
+        "conf": 0.5256
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.4235
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "excited",
+        "pred": "anger",
+        "conf": 0.7191
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.5957
+      },
+      {
+        "text": "Can I bring a dog inside?",
+        "spoken_as": "sad",
+        "pred": "neutral",
+        "conf": 0.6641
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "emphatic",
+        "pred": "anger",
+        "conf": 0.8075
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.9064
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.8588
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "excited",
+        "pred": "anger",
+        "conf": 0.8739
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "neutral",
+        "pred": "anger",
+        "conf": 0.8567
+      },
+      {
+        "text": "Where do I pick up my order?",
+        "spoken_as": "sad",
+        "pred": "anger",
+        "conf": 0.764
+      }
+    ],
+    "note": "No ground truth exists for synthetic speech with no acted intent. A wide spread of confident labels over one flat voice is evidence the classifier is reading something other than emotion."
+  }
+}
