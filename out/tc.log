@@ -1,0 +1,59 @@
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 1723.57it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 56661.64it/s]
+[transformers] [1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-base
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+project_q.weight             | UNEXPECTED |  | 
+quantizer.weight_proj.bias   | UNEXPECTED |  | 
+quantizer.weight_proj.weight | UNEXPECTED |  | 
+project_hid.weight           | UNEXPECTED |  | 
+project_hid.bias             | UNEXPECTED |  | 
+project_q.bias               | UNEXPECTED |  | 
+quantizer.codevectors        | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+/Users/abhay/Desktop/Playground/expressive-s2s/.venv/lib/python3.12/site-packages/pyworld/__init__.py:13: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+  turn  0  gap   620.5  first  620.5  emo anger   1.00 (  0.0ms) -> emphatic '"Confirm the appointment and be on tim'
+  turn  1  gap   857.3  first  857.3  emo anger   1.00 (  0.0ms) -> emphatic "You've got 11 hours left."
+  turn  2  gap   635.0  first  635.0  emo disgust 0.55 (  0.0ms) -> neutral  '"Check weather forecast for your area.'
+  turn  3  gap   853.6  first  853.6  emo anger   1.00 (  0.0ms) -> emphatic "I'm sorry you're frustrated, but I can"
+  turn  4  gap   491.2  first  491.2  emo disgust 1.00 (  0.0ms) -> neutral  '"Traffic is a nightmare."'
+  turn  5  gap   753.4  first  753.4  emo disgust 1.00 (  0.0ms) -> neutral  "You've probably heard this question be"
+  turn  6  gap   502.2  first  502.2  emo disgust 1.00 (  0.0ms) -> neutral  '"Traffic."'
+  turn  7  gap   423.9  first  423.9  emo disgust 0.98 (  0.0ms) -> neutral  '"Time for bed."'
+  turn  8  gap  1034.4  first 1034.4  emo fear    0.95 (  0.0ms) -> sad      "Don't worry, it's probably just a resu"
+  turn  9  gap   549.5  first  549.5  emo sad     1.00 (  0.0ms) -> sad      "You're feeling down, but I'm here to l"
+  turn 10  gap  1465.5  first 1465.5  emo fear    0.94 (  0.0ms) -> sad      'You might be experiencing a déjà vu or'
+  turn 11  gap   527.2  first  527.2  emo fear    0.99 (  0.0ms) -> sad      '"Hey, you\'re not running late, you jus'
+  turn 12  gap   162.4  first  162.4  emo sad     1.00 (  0.0ms) -> sad      'You seem a bit down.'
+  turn 13  gap   350.6  first  350.6  emo sad     0.60 (  0.0ms) -> sad      'You might want to hold onto your shoes'
+  turn 14  gap   243.3  first  243.3  emo happy   1.00 (  0.0ms) -> excited  "You're gonna crush that meeting!"
+  turn 15  gap   873.4  first  873.4  emo happy   1.00 (  0.0ms) -> excited  '"Time to kickstart your day, sunshine!'
+  turn 16  gap   770.5  first  770.5  emo neutral 1.00 (  0.0ms) -> neutral  'This conversation just started.'
+  turn 17  gap   893.3  first  893.3  emo neutral 1.00 (  0.0ms) -> neutral  'You can consider the Samsung Galaxy Wa'
+  turn 18  gap   533.0  first  533.0  emo neutral 0.71 (  0.0ms) -> neutral  "You've reached 11 o'clock."
+  turn 19  gap   276.3  first  276.3  emo neutral 1.00 (  0.0ms) -> neutral  'You might be referring to the smooth s'
+  turn 20  gap   377.7  first  377.7  emo sad     0.67 (  0.0ms) -> sad      "It's just a conversation."
+  turn 21  gap   745.1  first  745.1  emo fear    0.86 (  0.0ms) -> sad      "Don't worry, we'll be back on track so"
+  turn 22  gap   759.6  first  759.6  emo anger   0.56 (  0.0ms) -> emphatic 'This conversation just started.'
+  turn 23  gap   753.4  first  753.4  emo sad     0.51 (  0.0ms) -> sad      "You'll know it's cold when the wind cu"
+
+wrote runs/tc-crema-transplant.json
+
+feature                  anger     disgust        fear       happy     neutral         sad        H         p
+-------------------------------------------------------------------------------------------------------------
+f0_mean                 245.83      200.99      139.72      315.67      197.62      139.80    20.97   0.00082
+f0_sd                    92.52       57.59       21.01      109.41       45.30       23.42    20.68   0.00093
+f0_range                296.62      176.91       65.09      322.34      152.64       73.13    21.35   0.00069
+speech_rate               3.28        3.12        3.35        3.71        3.48        3.74     3.58      0.61
+articulation_rate         3.36        3.21        3.72        3.75        3.50        3.86     2.41      0.79
+rms_mean_db             -23.71      -23.24      -24.09      -24.93      -23.95      -23.25     5.02      0.41
+rms_range_db             25.53       25.63       26.07       22.13       24.24       24.49     4.78      0.44
+duration                  1.97        1.02        4.60        1.50        2.25        2.00    10.83     0.055
+pause_frac                0.00        0.00        0.09        0.00        0.00        0.00    11.97     0.035
+hnr                      13.07       14.22       14.74       14.35       12.93       15.71     5.59      0.35
+
+n per group: anger=4, disgust=5, fear=4, happy=2, neutral=4, sad=5

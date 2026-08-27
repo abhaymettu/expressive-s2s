@@ -22,6 +22,7 @@ ARMS = [
     ("runs/t1-transplant-fast.json", "T1  F0 transplant, --fast --arm 80"),
     ("runs/h0-human-control.json", "H0  CREMA-D actors, serial"),
     ("runs/h1-human-fast.json", "H1  CREMA-D actors, --fast --arm 80"),
+    ("runs/tc-crema-transplant.json", "TC  CREMA-D + transplant, --fast"),
 ]
 
 STAGES = ["endpoint_hangover_ms", "asr_final_dispatch_ms", "asr_final_ms",
@@ -80,6 +81,18 @@ def main(paths=None) -> int:
               f"{sp['turns_served_speculatively']:>6}{sp['pipelines_launched']:>7}"
               f"{ep['false_endpoints']:>5}/{ep['n']:<3}{cu['n_fired']:>5}"
               f"{('-' if w is None else f'{w:.3f}'):>8}{r['loadavg_start'][0]:>7.1f}")
+
+    # The truncated turns end early, so their gaps are short for the wrong
+    # reason. Quote both or neither.
+    print("\ngap excluding false endpoints (only differs where falseEP > 0)")
+    for p, lbl in arms:
+        r = json.loads(Path(p).read_text())
+        v = sorted(t["gap_ms"] for t in r["turns"] if not t["truncated"])
+        if len(v) == len(r["turns"]):
+            continue
+        q = statistics.quantiles(v, n=4)
+        print(f"{lbl:<34}{f'{statistics.median(v):.0f} [{q[0]:.0f}-{q[2]:.0f}]':>22}"
+              f"{len(v):>4}   (dropped {len(r['turns']) - len(v)})")
 
     print("\ngap, full spread")
     print(f"{'arm':<36}{'median':>8}{'p25':>8}{'p75':>8}{'min':>8}{'max':>8}"
