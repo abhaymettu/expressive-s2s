@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+models/
+*.pt
+*.onnx
+*.safetensors
+runs/*.wav
+data/raw/
+.DS_Store
