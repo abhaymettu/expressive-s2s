@@ -85,6 +85,17 @@ def true_emotion(label: str) -> str | None:
     return e if e in emo.EMOTIONS else None
 
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval. n is 24 here; a normal-approximation interval at
+    that size is wrong in the direction that flatters the result."""
+    if n == 0:
+        return (0.0, 0.0)
+    p, d = k / n, 1 + z * z / n
+    c = p + z * z / (2 * n)
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
+    return (round(max(0.0, (c - h) / d), 4), round(min(1.0, (c + h) / d), 4))
+
+
 def score(run_json: str, out_path=None) -> dict:
     """Classifier accuracy *inside the live loop*, against CREMA-D actor intent.
 
@@ -107,16 +118,18 @@ def score(run_json: str, out_path=None) -> dict:
         conf[a][b] += 1
     per = {e: {"n": sum(v.values()), "recall": round(v.get(e, 0) / sum(v.values()), 3)}
            for e, v in sorted(conf.items())}
+    lo, hi = wilson(hit, len(rows))
     res = {"source_run": run_json, "n": len(rows),
            "acc_vs_actor_intent": round(hit / len(rows), 4),
+           "acc_95ci_wilson": [lo, hi],
            "reported_offline_acc_vs_intent": 0.749,
            "reported_offline_acc_vs_crowd_consensus": 0.522,
            "per_class": per, "confusion": conf,
            "note": "same held-out CREMA-D test actors the checkpoint was evaluated on, "
                    "fed through the live loop (22050 Hz capture, endpointer crop, "
                    "resample back to 16 kHz, 4 s cap) instead of straight off disk."}
-    print(f"in-loop accuracy vs actor intent: {hit}/{len(rows)} = {hit/len(rows):.3f}  "
-          f"(offline, same actors, straight off disk: 0.749)")
+    print(f"in-loop accuracy vs actor intent: {hit}/{len(rows)} = {hit/len(rows):.3f} "
+          f"[{lo:.3f}, {hi:.3f}]  (offline, same actors, straight off disk: 0.749 on n=1640)")
     for e, d in per.items():
         print(f"  {e:<8} n={d['n']:<3} recall={d['recall']:.3f}")
     if out_path:
