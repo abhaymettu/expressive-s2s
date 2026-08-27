@@ -11,17 +11,24 @@ that emotion → reply spoken with matching prosody, with a non-verbal cue place
 in the gap while the rest of the pipeline is still working.
 
 It runs end to end on one laptop, and it is measured end to end. **Listen first.**
-The same four real turns, laid out on the real clock, on each of the two TTS
-engines — the silences you hear are the silences that were measured:
+Real turns, laid out on the real clock, on each of the three TTS engines — the
+silences you hear are the silences that were measured:
 
-- [`demo/exchange.wav`](demo/exchange.wav) — Piper. Fast (reply at 501–1080 ms)
-  and, as §3 shows, acoustically flat regardless of what was detected.
-- [`demo/exchange-expressive.wav`](demo/exchange-expressive.wav) — macOS `say`.
-  You can hear the voice change with the detected emotion, and you can hear the
-  600 ms it costs (reply at 1133–1562 ms).
+- [`demo/exchange.wav`](demo/exchange.wav) — Piper, serial loop. Fast (reply at
+  501–1080 ms) and, as §3 shows, acoustically flat regardless of what was
+  detected.
+- [`demo/exchange-expressive.wav`](demo/exchange-expressive.wav) — macOS `say`,
+  serial loop. You can hear the voice change with the detected emotion, and you
+  can hear the 600 ms it costs (reply at 1133–1562 ms).
+- [`demo/exchange-transplant.wav`](demo/exchange-transplant.wav) — **Piper with
+  the F0 contour transplanted onto it, on the fast path.** The voice changes and
+  the reply lands at 351–1034 ms. This is the one to listen to.
 
-Both are the same four turns: detected anger → emphatic, disgust → neutral,
-fear → sad, sad → sad, with a filled-pause cue in the gap each time.
+The first two are the same four turns: detected anger → emphatic, disgust →
+neutral, fear → sad, sad → sad, with a filled-pause cue in the gap each time.
+The third is four turns from the transplant run, chosen the same way (one per
+detected emotion) and with **no cue at all** — see §1.1 for why the fast path
+stops firing it.
 
 > **The headline, in four numbers.** The whole downstream pipeline — final
 > decode, emotion classifier, LM and TTS — now runs **inside the endpointer's
@@ -37,9 +44,11 @@ fear → sad, sad → sad, with a filled-pause cue in the gap each time.
 > `say` spans 246 Hz for 595 ms (§2).
 >
 > Two things that did not get better, and are measured rather than warned about:
-> the classifier still calls flat synthetic audio `anger` 20 times out of 20
-> (§4), and the endpointer still cuts real people off — **3 of 24 CREMA-D turns,
-> identically with the fast path on and off** (§1.3).
+> the classifier still calls flat synthetic audio `anger` — 20 out of 20 turns in
+> the run that first caught it, and 12 to 16 out of 20 in three more runs this
+> session, at up to 0.96 confidence (§4); and the endpointer still cuts real
+> people off — **3 of 24 CREMA-D turns, identically with the fast path on and
+> off** (§1.3).
 
 ---
 
@@ -509,6 +518,14 @@ emotion in it and it does not abstain — it commits.
 
 - **Run A, 20 turns of flat synthetic prompt audio: it said `anger` 20 times out
   of 20**, confidence up to 0.96.
+- **Three more 20-turn runs on the same prompts, this session, say the same
+  thing less extremely:** 16/20 `anger` + 4 `neutral` (control F0, max
+  confidence 0.90), 12/20 + 8 (control F0b, 0.91), 12/20 + 8 (fast path F2,
+  0.88). So the *exact* 20/20 does not reproduce — it is 12 to 20 out of 20
+  across four runs of identical audio — and the finding it was reporting does:
+  on five flat synthetic sentences with no emotion in them the classifier
+  commits to `anger` most of the time and to `neutral` the rest, never to
+  anything in between, and never with low confidence.
 - **Probe, 30 synthetic utterances** across five texts and all six preset
   renderings, no ground truth available: `anger` 23, `neutral` 5, `sad` 2,
   **median confidence 0.73**.

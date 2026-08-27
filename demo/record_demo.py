@@ -32,7 +32,10 @@ def pick(run, n: int, spread: bool):
     the distribution over all turns is in the run JSON and in the README, and
     it is not this flattering.
     """
-    ts = run["turns"]
+    # A turn the endpointer cut short is not the loop working, and playing one
+    # to a listener as if it were would be the demo lying. They are counted in
+    # README section 1.3, where they belong, and left out of here.
+    ts = [t for t in run["turns"] if not t.get("truncated")] or run["turns"]
     if not spread:
         return ts[:n]
     seen, out = set(), []
