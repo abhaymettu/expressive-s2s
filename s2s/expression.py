@@ -338,10 +338,12 @@ def main():
     ap.add_argument("--run", help="run JSON for `live`")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--n-crema", type=int, default=300)
+    ap.add_argument("--backends", default="piper,say",
+                    help="comma-separated TTS backends for `sweep`")
     ap.add_argument("--out")
     a = ap.parse_args()
     if a.cmd == "sweep":
-        sweep(a.reps, a.out)
+        sweep(a.reps, a.out, backends=tuple(a.backends.split(",")))
     elif a.cmd == "live":
         live(a.run, a.out)
     elif a.cmd == "probe":

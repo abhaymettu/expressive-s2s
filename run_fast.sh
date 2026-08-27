@@ -43,4 +43,12 @@ $PY -m s2s.loop batch --n "$NH" --prompt-wav-dir runs/user-turns \
 $PY -m s2s.loop batch --n "$NH" --fast --arm 80 --emotion-parallel \
     --prompt-wav-dir runs/user-turns --out runs/h1-human-fast.json "${D[@]}"
 
+echo "== expression: three engines, text held constant =="
+$PY -m s2s.expression sweep --reps 3 --backends piper,transplant,say \
+    --out out/sweep-three-engines.json
+
+echo "== expression: end to end, grouped by detected emotion =="
+$PY -m s2s.expression live --run runs/t0-transplant-serial.json \
+    --out out/live-transplant.json || true
+
 $PY fastsummary.py

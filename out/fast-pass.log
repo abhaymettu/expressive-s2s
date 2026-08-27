@@ -1,72 +1,65 @@
 == self-checks, both paths ==
-Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 4832.15it/s]
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 5571.36it/s]
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 46912.17it/s]
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 91114.81it/s]
 [transformers] [1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-base
 Key                          | Status     |  | 
 -----------------------------+------------+--+-
-project_hid.weight           | UNEXPECTED |  | 
-quantizer.weight_proj.bias   | UNEXPECTED |  | 
-quantizer.codevectors        | UNEXPECTED |  | 
 project_hid.bias             | UNEXPECTED |  | 
-project_q.bias               | UNEXPECTED |  | 
+quantizer.codevectors        | UNEXPECTED |  | 
 quantizer.weight_proj.weight | UNEXPECTED |  | 
 project_q.weight             | UNEXPECTED |  | 
+project_q.bias               | UNEXPECTED |  | 
+project_hid.weight           | UNEXPECTED |  | 
+quantizer.weight_proj.bias   | UNEXPECTED |  | 
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-  turn  0  gap   899.7  first  415.1  emo anger   0.68 ( 54.5ms) -> emphatic "I'm available 24/7, including Sundays."
-  turn  1  gap   970.5  first  417.2  emo anger   0.82 ( 53.7ms) -> emphatic '"Parking is limited, but there\'s a car'
-  turn  2  gap   828.3  first  422.7  emo anger   0.59 ( 47.0ms) -> emphatic 'The annual pass costs $99.'
+  turn  0  gap   871.1  first  419.7  emo anger   0.65 ( 46.6ms) -> emphatic "I'm available 24/7, including Sundays."
+  turn  1  gap   908.8  first  426.5  emo anger   0.92 ( 60.9ms) -> emphatic '"Parking is limited, but there\'s a car'
+  turn  2  gap   867.3  first  427.5  emo anger   0.68 ( 48.4ms) -> emphatic 'The annual pass costs $99.'
 
 selfcheck PASS -- 3 turns; every stage timer present, positive and summing to the gap; every emotion prediction provably made from its own turn's audio
-Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 2216.28it/s]
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 5394.60it/s]
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 52049.53it/s]
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 47212.49it/s]
 [transformers] [1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-base
 Key                          | Status     |  | 
 -----------------------------+------------+--+-
-project_hid.bias             | UNEXPECTED |  | 
-quantizer.codevectors        | UNEXPECTED |  | 
 project_hid.weight           | UNEXPECTED |  | 
-project_q.weight             | UNEXPECTED |  | 
 quantizer.weight_proj.weight | UNEXPECTED |  | 
+project_hid.bias             | UNEXPECTED |  | 
 quantizer.weight_proj.bias   | UNEXPECTED |  | 
 project_q.bias               | UNEXPECTED |  | 
+quantizer.codevectors        | UNEXPECTED |  | 
+project_q.weight             | UNEXPECTED |  | 
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-  turn  0  gap   774.2  first  774.2  emo anger   0.51 (185.7ms) -> emphatic "I'm available 24/7, including Sundays."
-  turn  1  gap   629.5  first  629.5  emo anger   0.81 ( 50.0ms) -> emphatic '"Parking is limited, but there\'s a car'
-  turn  2  gap   684.1  first  684.1  emo anger   0.81 (130.8ms) -> emphatic 'The annual pass costs $99.'
+  turn  0  gap   666.1  first  666.1  emo neutral 0.50 ( 45.6ms) -> neutral  "I'm available 24/7, including Sundays."
+  turn  1  gap   660.1  first  660.1  emo anger   0.89 ( 46.8ms) -> emphatic '"Parking is limited, but there\'s a car'
+  turn  2  gap   580.7  first  580.7  emo anger   0.63 ( 17.0ms) -> emphatic 'The annual pass costs $99.'
 
 selfcheck PASS -- 3 turns; every stage timer present, positive and summing to the gap; every emotion prediction provably made from its own turn's audio
 == F0: control, serial. Nothing starts before the endpoint ==
-Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 4732.20it/s]
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 5592.41it/s]
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 54257.75it/s]
+Loading weights:   0%|          | 0/211 [00:00<?, ?it/s]Loading weights: 100%|██████████| 211/211 [00:00<00:00, 39809.19it/s]
 [transformers] [1mWav2Vec2Model LOAD REPORT[0m from: facebook/wav2vec2-base
 Key                          | Status     |  | 
 -----------------------------+------------+--+-
 project_hid.bias             | UNEXPECTED |  | 
-quantizer.codevectors        | UNEXPECTED |  | 
-project_q.bias               | UNEXPECTED |  | 
-quantizer.weight_proj.bias   | UNEXPECTED |  | 
-project_q.weight             | UNEXPECTED |  | 
-project_hid.weight           | UNEXPECTED |  | 
 quantizer.weight_proj.weight | UNEXPECTED |  | 
+project_hid.weight           | UNEXPECTED |  | 
+quantizer.weight_proj.bias   | UNEXPECTED |  | 
+project_q.bias               | UNEXPECTED |  | 
+quantizer.codevectors        | UNEXPECTED |  | 
+project_q.weight             | UNEXPECTED |  | 
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-  turn  0  gap   928.8  first  421.7  emo anger   0.70 ( 50.3ms) -> emphatic "I'm available 24/7, including Sundays."
-  turn  1  gap   932.7  first  419.3  emo anger   0.92 ( 56.4ms) -> emphatic '"Parking is limited, but there\'s a car'
-  turn  2  gap   871.2  first  418.2  emo anger   0.84 ( 51.7ms) -> emphatic 'The annual pass costs $99.'
-  turn  3  gap  1503.0  first  415.7  emo anger   0.65 (275.0ms) -> emphatic "I'm not sure I can allow your dog insi"
-  turn  4  gap  1128.5  first  425.3  emo anger   0.92 (109.7ms) -> emphatic '"Your order is at the pickup counter, '
-  turn  5  gap   892.2  first  422.8  emo anger   0.70 ( 40.2ms) -> emphatic "I'm available 24/7, including Sundays."
-  turn  6  gap   889.6  first  418.5  emo anger   0.92 ( 39.8ms) -> emphatic '"Parking is limited, but there\'s a car'
-  turn  7  gap   856.5  first  418.2  emo anger   0.84 ( 47.8ms) -> emphatic 'The annual pass costs $99.'
-  turn  8  gap  1351.6  first  428.0  emo anger   0.65 (199.5ms) -> emphatic "I'm not sure I can allow your dog insi"
-  turn  9  gap  1050.2  first  425.6  emo anger   0.92 ( 93.7ms) -> emphatic '"Your order is at the pickup counter, '
+  turn  0  gap   900.4  first  435.8  emo neutral 0.65 ( 44.8ms) -> neutral  "I'm available 24/7, including Sundays."
+  turn  1  gap   891.4  first  430.5  emo anger   0.78 ( 48.0ms) -> emphatic '"Parking is limited, but there\'s a car'
+  turn  2  gap   877.6  first  426.5  emo anger   0.59 ( 52.9ms) -> emphatic 'The annual pass costs $99.'
 /Users/abhay/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
   warnings.warn('resource_tracker: There appear to be %d '
