@@ -98,13 +98,19 @@ def main(paths=None) -> int:
               f"asr {r['asr']['partial_model']}/{r['asr']['final_model']}")
         print(f"  {'stage':<26}{'charged [IQR]':>22}{'work [IQR]':>22}")
         for k in STAGES:
-            if k not in s:
+            if "stage_ms." + k not in s:
                 continue
-            c = s[k]
+            c = s["stage_ms." + k]
             w = s.get("work_ms." + k[:-3])
             wtxt = f"{w['median']:.0f} [{w['p25']:.0f}-{w['p75']:.0f}]" if w else "-"
             print(f"  {k:<26}{f'{c['median']:.0f} [{c['p25']:.0f}-{c['p75']:.0f}]':>22}"
                   f"{wtxt:>22}")
+        # work_ms.emotion is thread-start-to-join, so under --emotion-parallel it
+        # spans the whole ASR decode. The classifier's own forward pass is this:
+        e = s.get("emotion_standalone_ms")
+        if e:
+            print(f"  {'(classifier fwd pass)':<26}{'':>22}"
+                  f"{f'{e['median']:.0f} [{e['p25']:.0f}-{e['p75']:.0f}]':>22}")
     return 0
 
 
