@@ -118,3 +118,13 @@ for name in ["out/live-piper.json", "out/live-say.json"]:
         kw = g["kruskal"]
         print(f"   {f:<14} {meds}  H={kw['H']:.1f} p={kw['p']:.2g}" if kw
               else f"   {f:<14} {meds}")
+
+print("\n" + "=" * 78)
+print("ENDPOINTER")
+print("=" * 78)
+p = Path("out/endpointer.json")
+if p.exists():
+    for k, v in json.loads(p.read_text()).items():
+        print(f"{k}: hangover median {v['hangover_median_ms']:.0f} ms "
+              f"(design {v['design_constant_ms']:.0f}), range {v['hangover_min_ms']:.0f}"
+              f" to {v['hangover_max_ms']:.0f}, cut off {v['n_cut_the_user_off']}/{v['n']}")
