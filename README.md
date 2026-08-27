@@ -68,12 +68,17 @@ this loop is the s0 run: **74.9% against actor intent, 52.2% against crowd
 consensus.** So "the agent detected sadness" is a claim about a label with
 known, measured softness underneath it.
 
-**Timing is measured against a real prior number.** The gap definition here is
-the one in aliveness-threshold, unchanged: *onset of agent speech minus offset
-of user speech, both silence-trimmed*, with the user's offset re-measured by
-`vendor.audio.segments(merge_gap_ms=30, min_len_ms=20)` — the end of the last
-speech segment, **not** the moment the endpointer noticed. That repo measured a
-median gap of **1452 ms over n = 40** on this same laptop.
+**Timing is measured against a real prior number, and that number moved.** The
+gap definition here is the one in aliveness-threshold, unchanged: *onset of
+agent speech minus offset of user speech, both silence-trimmed*, with the user's
+offset re-measured by `vendor.audio.segments(merge_gap_ms=30, min_len_ms=20)` —
+the end of the last speech segment, **not** the moment the endpointer noticed.
+That repo first measured a median gap of 1452 ms over n = 40 on this laptop, then
+**re-ran the unchanged code and got 807 ms [779–895] over n = 100**, and could
+not attribute the difference to any variable it records. Its own conclusion is
+that cross-run comparison to the 1452 ms figure is invalid. §1 therefore compares
+against a control measured in this repo, in the same session, on the same
+machine — not against either published figure.
 
 **Generation is bounded by the engine, not by the mapping.** Piper exposes no
 pitch control whatsoever. That is not a tuning problem and no preset fixes it.
@@ -82,9 +87,9 @@ pitch control whatsoever. That is not a tuning problem and no preset fixes it.
 
 ## 1. Latency, with the emotion classifier in the path
 
-Configuration A: TTS-rendered prompts, Piper output, classifier serial. This is
-the arm built to sit next to the 1452 ms baseline — same gap definition, same
-machine, same prompt set.
+Configuration A: TTS-rendered prompts, Piper output, classifier serial. Same gap
+definition, same machine and same prompt set as the aliveness-threshold loop, so
+the stage table below lines up row for row with that repo's.
 
 **gap = 937 ms, IQR [866–989], n = 20** (mean 928, sd 75, min 819, max 1098).
 
@@ -127,16 +132,35 @@ n = 20 each. The classifier's own forward pass is 45 ms [42–53] in A and
 That is the engineering answer: **on this hardware, emotion detection does not
 have to cost anything.** Ship it on a worker thread started at the endpoint.
 
-### Against the 1452 ms baseline — and why that comparison is weaker than it looks
+This is the same move aliveness-threshold since made on the whole downstream —
+its `--fast` mode starts the ASR final decode, the LM and the TTS *inside* the
+endpointer's 350 ms hangover rather than after it, discarding the result if more
+speech arrives, and reaches a 386 ms median gap with 0 false endpoints in 240
+turns. That is not applied here: this loop still waits out the full hangover
+before doing anything, so ~360 ms of every gap above is dead time by
+construction. Folding the emotion classifier into a speculative-decode loop is
+the obvious next step, and it is unmeasured.
 
-937 ms against 1452 ms is 515 ms faster *with an extra stage added*. I do not
-claim credit for that. The baseline ran at load average 8–19; this ran at
-6.1–10.5, and the ASR final decode — the CPU-bound stage — came in at 236 ms
-here against 434 ms there. **Machine load explains most of the difference.**
-The honest within-this-repo comparison is A against E, above, and it says
-+45 ms serial or nothing overlapped. The baseline comparison is reported
-because the gap definition genuinely is identical and someone will want it, not
-because it is the result.
+### Why there is no headline comparison to the 1452 ms baseline
+
+937 ms against 1452 ms would be 515 ms faster *with an extra stage added*, and it
+would be meaningless. **That baseline does not reproduce.** aliveness-threshold
+re-ran its own unchanged code and got 807 ms [779–895] over n = 100 against the
+1452 ms it recorded twenty minutes earlier, and it explicitly checked and ruled
+out machine load: the run that returned 1452 ms recorded load average 16.79, the
+run that returned 883 ms recorded 16.97. Whatever moved is not captured by any
+variable either harness records, and its own conclusion is that any cross-run
+comparison to 1452 ms is invalid.
+
+So I do not make one. **Every claim in §1 is against arm E — no classifier at
+all — run in the same session, on the same machine, interleaved with the arms it
+is being compared to.** For the record: E's 850 ms [820–916] over n = 20 sits
+comfortably inside that repo's re-measured 807 ms [779–895] over n = 100, which
+is the consistency check you would want before believing anything else here.
+
+The reason this matters beyond bookkeeping: a 515 ms "improvement" was sitting
+there to be claimed, from a real run, using an identical gap definition, and it
+would have been entirely fictitious.
 
 ### The cue fills the front of the gap
 
@@ -342,7 +366,13 @@ not a faster model.
 9. **The microphone path is only partly verified.** `--mic` opens a real input
    stream, endpoints and transcribes; no reported number comes from it. The full
    acoustic loop — speakers into the room into the mic — was not tested.
-10. **The F0 transplant did not land.** [prosody-transplant](https://github.com/abhaymettu/prosody-transplant)
+10. **The machine itself is not a stable measurement instrument.** The loop this
+    one is built on measured 1452 ms and then 807 ms from identical code twenty
+    minutes apart, with no recorded variable explaining it. Every number here was
+    taken in one session with its own internal control, which is the mitigation,
+    not a fix. Numbers from different sessions in this repo should not be
+    compared to each other either.
+11. **The F0 transplant did not land.** [prosody-transplant](https://github.com/abhaymettu/prosody-transplant)
     was still scaffolding when this ran (commit `490880c`), so the expressive-
     at-Piper-latency option is unmeasured and the tradeoff in §2 stands as the
     live result. If it lands, it drops into `vendor/tts.py` as a third backend
