@@ -30,10 +30,17 @@ def build(run_json: str, out_wav: str, turns: int = 4, lead_ms: float = 400.0):
     voice = pick_voice("piper")
     cue_a = cues.cue_audio("filled_pause", voice=voice)
 
+    stim_dir = Path("runs/user-turns")
     out = [np.zeros(audio.samples(lead_ms), np.float32)]
     lines = []
     for t in run["turns"][:turns]:
-        prompt = voice.synth(t["label"] if t["label"] in PROMPTS else t["transcript"])
+        # prefer the exact wav the loop was fed. For a CREMA-D-driven run that is
+        # a real person, which is the whole point of playing it to someone.
+        stim = stim_dir / f"{t['label']}.wav"
+        if stim.exists():
+            prompt = audio.trim(audio.read(stim))
+        else:
+            prompt = voice.synth(t["label"] if t["label"] in PROMPTS else t["transcript"])
         reply = audio.read(t["reply_wav"])
         out.append(prompt)
 
