@@ -185,9 +185,19 @@ class Player:
         outdata[:n, 0] = x[self.pos : self.pos + n]
         self.pos += n
 
-    def play(self, name: str, x: np.ndarray) -> None:
-        self.wait()
+    def play(self, name: str, x: np.ndarray) -> bool:
+        """Start `x`. Returns True if it preempted something still playing.
+
+        It preempts rather than queues on purpose. Queueing would put the tail
+        of a cue *inside* the reply's gap, which would silently inflate the one
+        number this repo exists to compare against 1452 ms. In practice the cue
+        fires at 400 ms and is ~300 ms long, so the reply at ~1500 ms preempts
+        nothing; `preempted` is reported per turn so that stays a fact and not
+        an assumption.
+        """
+        cut = self.buf is not None
         self.pos, self.name, self.buf = 0, name, x
+        return cut
 
     def new_turn(self) -> None:
         self.t_first.clear()
@@ -364,14 +374,19 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
     # Arm the cue on a timer measured from the user's speech offset, so it fires
     # at a fixed point in the gap regardless of how slow the rest of the turn is.
     fired = threading.Event()
+    cue_lock = threading.Lock()
     if use_cue and len(cue_audio):
         def arm():
             d = (off + CUE_AT_MS / 1000.0) - time.perf_counter()
             if d > 0:
                 time.sleep(d)
-            if not fired.is_set():          # reply already speaking, stay quiet
-                player.play("cue", cue_audio)
-                fired.set()
+            # under the lock: once the reply has claimed the stream the cue must
+            # not fire behind it. Without this the cue can land AFTER the reply
+            # on a slow turn and be timed as if it came first.
+            with cue_lock:
+                if not fired.is_set():
+                    player.play("cue", cue_audio)
+                    fired.set()
         threading.Thread(target=arm, daemon=True).start()
 
     hint = prosody.hint_for(detected)
@@ -384,9 +399,10 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
     if len(y) == 0:
         raise RuntimeError(f"TTS produced no audio for {sentence!r}")
 
-    cue_played = fired.is_set()
-    fired.set()  # past this point the reply owns the output stream
-    player.play("reply", y)
+    with cue_lock:
+        cue_played = fired.is_set()
+        fired.set()  # past this point the reply owns the output stream
+        preempted = player.play("reply", y)
     end = time.perf_counter() + 8.0
     while "reply" not in player.t_first and time.perf_counter() < end:
         time.sleep(0.001)
@@ -429,6 +445,7 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
         "prosody_cfg": cfg,
         "cue": CUE if cue_played else None,
         "cue_gap_ms": ms(t_cue, off) if t_cue else None,
+        "cue_preempted_by_reply": preempted,
         "input_ms": round(cap["input_ms"], 1),
         "user_speech_ms": ms(off, cap["t_speech_onset"]),
         "reply_audio_ms": round(audio.millis(len(y)), 1),
@@ -624,6 +641,13 @@ def selfcheck(n_turns: int = 3, **kw) -> dict:
             f"turn {n}: spoke with {t['prosody_preset']} for {t['detected_emotion']}")
         if res["emotion"]["schedule"].startswith("serial"):
             assert t["stage_ms"]["emotion_ms"] > 0, f"turn {n}: emotion stage not timed"
+
+        if t["cue"]:
+            assert t["cue_gap_ms"] < t["gap_ms"], (
+                f"turn {n}: cue at {t['cue_gap_ms']:.0f}ms landed at or after the reply "
+                f"at {t['gap_ms']:.0f}ms -- it filled nothing")
+            assert not t["cue_preempted_by_reply"], (
+                f"turn {n}: the reply cut the cue off mid-word")
 
         parts = sum(t["stage_ms"][k] for k in
                     ("endpoint_hangover_ms", "asr_final_dispatch_ms", "asr_final_ms",
