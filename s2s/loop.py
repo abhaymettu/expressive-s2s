@@ -90,9 +90,16 @@ PROMPTS = [
 ]
 
 
+SAY_VOICE = "Alex"  # the voice expressive-tts-audit measured; pbas/volm work on it
+
+
 def pick_voice(which: str = "auto"):
+    """`auto` and `piper` -> the piper voice in models/piper/. `say` -> macOS
+    `say` with the Alex voice, explicitly, never by autodetect fallback."""
+    if which == "say":
+        return tts.Voice("say", name=SAY_VOICE)
     found = sorted((ROOT / "models" / "piper").glob("*.onnx"))
-    if which in ("auto", "piper") and found:
+    if found:
         return tts.Voice("piper", name=str(found[0]))
     if which == "piper":
         raise RuntimeError("piper requested but no .onnx voice in models/piper/")
@@ -240,9 +247,16 @@ def _mic(q: queue.Queue, stop: threading.Event, box: dict):
     s.close()
 
 
-def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool) -> dict:
+def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
+            on_endpoint=None) -> dict:
     """Stream in, partial-decode in the background, stop on the endpointer,
     final-decode, and classify emotion.
+
+    `on_endpoint(t_end)` is called the instant the endpointer fires, before any
+    decoding starts. That is the only moment a real system can act on "the user
+    has stopped": everything after it -- ASR, emotion, LM, TTS -- is the wait
+    the cue exists to fill, so arming the cue anywhere later would arm it after
+    the deadline it was supposed to beat.
 
     `parallel_emotion` decides whether the classifier runs on a worker thread
     started at the endpoint (overlapped with the ASR final decode) or serially
@@ -304,6 +318,9 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool) -> 
             last_speech = now
         elif last_speech is not None and (now - last_speech) * 1000.0 >= HANGOVER_MS:
             t_end, ended = now, True
+
+    if on_endpoint:
+        on_endpoint(t_end)
 
     stop_mic.set()
     stop_partials.set()
@@ -376,17 +393,22 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool) -> 
 def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
              label="", use_cue=True, parallel_emotion=False, save_wav=None) -> dict:
     player.new_turn()
-    cap = capture(source, asr, partial_asr, clf, parallel_emotion)
-    off = cap["t_speech_offset"]
-    detected = cap["emotion"]["emotion"]
-
-    # Arm the cue on a timer measured from the user's speech offset, so it fires
-    # at a fixed point in the gap regardless of how slow the rest of the turn is.
     fired = threading.Event()
     cue_lock = threading.Lock()
-    if use_cue and len(cue_audio):
+
+    def on_endpoint(t_end):
+        """Arm the cue the moment the endpointer fires.
+
+        The reference point is the endpointer's own estimate of speech offset,
+        ``t_end - HANGOVER_MS`` -- which is what a live system actually has.
+        The *reported* cue offset is still measured against the silence-trimmed
+        true offset, so the number in the results is not the estimate.
+        """
+        if not (use_cue and len(cue_audio)):
+            return
+
         def arm():
-            d = (off + CUE_AT_MS / 1000.0) - time.perf_counter()
+            d = (t_end - HANGOVER_MS / 1000.0 + CUE_AT_MS / 1000.0) - time.perf_counter()
             if d > 0:
                 time.sleep(d)
             # under the lock: once the reply has claimed the stream the cue must
@@ -396,8 +418,12 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
                 if not fired.is_set():
                     player.play("cue", cue_audio)
                     fired.set()
+
         threading.Thread(target=arm, daemon=True).start()
 
+    cap = capture(source, asr, partial_asr, clf, parallel_emotion, on_endpoint)
+    off = cap["t_speech_offset"]
+    detected = cap["emotion"]["emotion"]
     hint = prosody.hint_for(detected)
     sentence, t_tok, t_sent, n_tok = lm.first_sentence(cap["transcript"] or "Hello?", hint)
 
