@@ -372,8 +372,10 @@ Same five sentences, every preset, 90 utterances per engine, text held constant:
 | **total gap, serial loop (n=20)** | 895 ms [876–922] | 962 ms [918–978] | — |
 | **total gap, fast path (n=20)** | **558 ms [538–573]** | **661 ms [639–680]** | — |
 
-**50 ms of extra synthesis buys 29× the pitch range.** Against `say`'s 595 ms
-for 41×. In the live loop the transplant costs **103 ms** on the fast path
+**50 ms of extra synthesis buys 28.5× the pitch range** (171.2 Hz of mean-F0
+span against plain Piper's 6.0 Hz). `say` buys 41× for 595 ms.
+
+In the live loop the transplant costs **103 ms** on the fast path
 (558 → 661 ms) and 67 ms on the serial one, where the same expression from `say`
 cost 606 ms in this repo's earlier real-actor arms (804 → 1410 ms).
 
