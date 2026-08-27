@@ -554,8 +554,11 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
                          parallel_emotion=parallel_emotion, save_wav=wav)
             t["turn"] = i
             turns.append(t)
+            # confidence is None on the ablation arm, where no classifier ran
+            c = t["emotion_confidence"]
+            conf = " -- " if c is None else f"{c:.2f}"
             print(f"  turn {i:2d}  gap {t['gap_ms']:7.1f}  first {t['first_audio_ms']:6.1f}  "
-                  f"emo {t['detected_emotion']:<8}{t['emotion_confidence']:.2f} "
+                  f"emo {t['detected_emotion']:<8}{conf} "
                   f"({t['stage_ms']['emotion_ms']:5.1f}ms) -> {t['prosody_preset']:<8} "
                   f"{t['reply'][:38]!r}", flush=True)
     finally:
