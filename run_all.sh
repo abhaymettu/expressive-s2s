@@ -40,6 +40,7 @@ $PY -m s2s.expression sweep --reps 3 --out out/sweep-both-engines.json
 $PY -m s2s.expression live --run runs/b-crema-piper.json --out out/live-piper.json
 $PY -m s2s.expression live --run runs/c-crema-say.json --out out/live-say.json
 $PY -m s2s.expression probe --out out/emotion-probe.json
+$PY -m s2s.endpoint_check runs/a-piper-prompts.json runs/b-crema-piper.json runs/c-crema-say.json
 
 echo "== demo =="
 $PY -m demo.record_demo runs/b-crema-piper.json demo/exchange.wav --turns 4
