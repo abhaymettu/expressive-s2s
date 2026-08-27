@@ -5,8 +5,9 @@ models/
 *.pt
 *.onnx
 *.safetensors
-runs/*.wav
+runs/**/*.wav
 data/raw/
 .DS_Store
 runs/user-turns/
-runs/*.wav
+runs/**/*.wav
+*.egg-info/
