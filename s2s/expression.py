@@ -185,7 +185,7 @@ def live(run_json: str, out_path=None):
                      "turn": t["turn"], **features.extract(Path(w), t["reply"])})
     if not rows:
         raise SystemExit(f"{run_json} has no saved reply wavs; rerun with --save-wavs")
-    res = _table(rows, "detected" if False else "emotion", out_path)
+    res = _table(rows, "emotion")
     res["source_run"] = run_json
     res["n_turns_in_run"] = run["n_turns"]
     res["detected_emotion_counts"] = run["detected_emotion_counts"]

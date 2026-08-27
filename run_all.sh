@@ -7,32 +7,32 @@ PY=.venv/bin/python
 # does not play aloud on a shared machine. The loop stages do not depend on the
 # device; only the reported output-device latency does.
 DEV=$($PY -c "import sounddevice as sd;print(next((d['name'] for d in sd.query_devices() if 'BlackHole' in d['name'] and d['max_output_channels']>0),''))")
-D=${DEV:+--device=$DEV}
+D=(); [ -n "$DEV" ] && D=(--device "$DEV")
 mkdir -p out runs
 
 echo "== self-checks =="
 $PY -m s2s.expression selfcheck
-$PY -m s2s.loop selfcheck --n 3 $D
+$PY -m s2s.loop selfcheck --n 3 "${D[@]}"
 
 echo "== stimuli: real CREMA-D held-out actors as the user =="
 $PY -m s2s.stimuli build --n 24
 
 echo "== A: piper prompts + piper out, the configuration comparable to the 1452ms baseline =="
-$PY -m s2s.loop batch --n 20 --out runs/a-piper-prompts.json $D
+$PY -m s2s.loop batch --n 20 --out runs/a-piper-prompts.json "${D[@]}"
 
 echo "== B: CREMA-D actors + piper out (fast, flat) =="
 $PY -m s2s.loop batch --n 24 --prompt-wav-dir runs/user-turns \
-    --save-wavs runs/b-wavs --out runs/b-crema-piper.json $D
+    --save-wavs runs/b-wavs --out runs/b-crema-piper.json "${D[@]}"
 
 echo "== C: CREMA-D actors + macOS say out (expressive, slow) =="
 $PY -m s2s.loop batch --n 24 --tts say --prompt-wav-dir runs/user-turns \
-    --save-wavs runs/c-wavs --out runs/c-crema-say.json $D
+    --save-wavs runs/c-wavs --out runs/c-crema-say.json "${D[@]}"
 
 echo "== D: what overlapping the classifier with the ASR decode buys =="
-$PY -m s2s.loop batch --n 20 --emotion-parallel --out runs/d-emotion-parallel.json $D
+$PY -m s2s.loop batch --n 20 --emotion-parallel --out runs/d-emotion-parallel.json "${D[@]}"
 
 echo "== E: no emotion stage at all, to price it by subtraction =="
-$PY -m s2s.loop batch --n 20 --no-emotion --out runs/e-no-emotion.json $D
+$PY -m s2s.loop batch --n 20 --no-emotion --out runs/e-no-emotion.json "${D[@]}"
 
 echo "== analysis =="
 $PY -m s2s.stimuli score --run runs/b-crema-piper.json --out out/emotion-in-loop.json
