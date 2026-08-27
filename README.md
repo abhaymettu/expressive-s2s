@@ -44,10 +44,10 @@ stops firing it.
 > `say` spans 246 Hz for 595 ms (§2).
 >
 > Two things that did not get better, and are measured rather than warned about:
-> the classifier still calls flat synthetic audio `anger` — 20 out of 20 turns in
-> the run that first caught it, and 12 to 16 out of 20 in three more runs this
-> session, at up to 0.96 confidence (§4); and the endpointer still cuts real
-> people off — **3 of 24 CREMA-D turns, identically with the fast path on and
+> the classifier still calls flat synthetic audio `anger`, on **every one of the
+> 20 turns in five of the nine arms** driven by that audio and on 8 to 16 of 20
+> in the other four, at up to 0.96 confidence (§4); and the endpointer still cuts
+> real people off — **3 of 24 CREMA-D turns, identically with the fast path on and
 > off** (§1.3).
 
 ---
@@ -182,7 +182,7 @@ hidden inside the hangover reads 0 and the stages still sum exactly to the gap.
 | endpoint hangover | 367 [356–373] | 370 [361–374] | — |
 | wait for in-flight partial | 6 [2–38] | **0** | — |
 | ASR final decode | 250 [247–258] | **0** | 246 [242–250] |
-| **emotion classifier** | 40 [37–47] | **0** | 45 [42–52] (fwd pass) |
+| **emotion classifier** | 40 [37–47] | **0** | 46 [44–50] (fwd pass) |
 | LM time to first token | 105 [98–114] | 84 [67–87] | 104 [102–109] |
 | LM to end of first sentence | 56 [42–59] | 52 [41–59] | 52 [41–59] |
 | TTS synthesis | 67 [59–74] | 60 [53–68] | 60 [53–68] |
@@ -298,10 +298,15 @@ Three things, in order of how much they matter.
    with the speculation switched off. `--arm 80` is not what breaks; the
    endpointer was already broken and this is the first measurement that could
    see it.
-2. **It is not a near-miss when it happens.** The three truncated turns lost
-   1760, 2270 and 1700 ms of speech and transcribed as `"You"`. The shortfall
-   distribution is bimodal — every other turn lost exactly 0 ms. There is no
-   grey zone here to tune a threshold into.
+2. **It is usually not a near-miss, but it can be.** On **H0** the three
+   truncated turns lost 1760, 2270 and 1700 ms of speech and all three
+   transcribed as `"You"`. On **H1** the losses are 1760, 2290 and **190 ms**,
+   and the 190 ms turn transcribed correctly as `"The surface is slick."` (two
+   of the three clips are the same on both arms, the third is not). What holds
+   on both arms is that **21 of the 24 turns lost exactly 0 ms**, so the
+   shortfall is mostly all or nothing. But H1's 190 ms turn is a real point in
+   between, so there is less grey zone here than elsewhere rather than none at
+   all, and a threshold tuned on H0 alone would not have seen it.
 3. **The speculation is self-limiting on human speech, which is the good news.**
    Only 14 of 24 turns were served speculatively, from 51 launched pipelines:
    a person pauses, the snapshot goes stale, the work is discarded and the turn
@@ -312,8 +317,9 @@ Three things, in order of how much they matter.
 one of them can see truncation. `s2s/endpoint_check.py` flags a turn when
 `endpoint_hangover_ms < 0` — the endpointer firing before the silence-trimmed
 offset *of the audio it captured*. But truncating the buffer moves that offset
-earlier too, so the hangover stays positive and the detector reads clean; on all
-three truncated turns here it read +5 to +8 ms. The check in §1.1/§1.3 compares
+earlier too, so the hangover stays positive and the detector reads clean; on
+H0's three truncated turns it read +5 to +8 ms, and on H1's +7 to +32 ms. The
+check in §1.1/§1.3 compares
 against the offset measured on the **source file, before the loop ran**, which
 is aliveness-threshold's definition and the only reference that survives the
 loop cutting the buffer short. §5's numbers are not wrong; the question they
@@ -481,8 +487,10 @@ by little else.
 
 Two honest caveats. The reply *text* differs between turns here, unlike §3a, so
 the duration and rate rows are partly the sentence and not the prosody — which
-is why they are the two rows that behave the same on both engines. And n is 3–5
-per group; read §3a for the clean version and this table for the end-to-end one.
+is why they are the two rows that behave the same on both engines. And n per
+group is small: 3–5 on the Piper and `say` runs, 2–5 on the transplant run,
+where `happy` is n = 2. Read §3a for the clean version and this table for the
+end-to-end one.
 
 **The answer to "does the expressive output measurably differ by detected
 emotion" is: yes on `say`, yes on the transplant, no on plain Piper.** It used
@@ -518,16 +526,20 @@ not a differently-wired copy of it.
 The classifier was trained on **acted** speech. Point it at speech with no acted
 emotion in it and it does not abstain — it commits.
 
-- **Run A, 20 turns of flat synthetic prompt audio: it said `anger` 20 times out
-  of 20**, confidence up to 0.96.
-- **Three more 20-turn runs on the same prompts, this session, say the same
-  thing less extremely:** 16/20 `anger` + 4 `neutral` (control F0, max
-  confidence 0.90), 12/20 + 8 (control F0b, 0.91), 12/20 + 8 (fast path F2,
-  0.88). So the *exact* 20/20 does not reproduce — it is 12 to 20 out of 20
-  across four runs of identical audio — and the finding it was reporting does:
-  on five flat synthetic sentences with no emotion in them the classifier
-  commits to `anger` most of the time and to `neutral` the rest, never to
-  anything in between, and never with low confidence.
+- **Nine arms this session were driven by the same five flat synthetic prompt
+  sentences. Five of them said `anger` on every single turn:** A 20/20 (max
+  confidence 0.959), D 20/20 (0.919), F1 20/20 (0.942), F3 20/20 (0.908),
+  T1 20/20 (0.910).
+- **The other four split, and always the same way, `anger` against `neutral`
+  and nothing else:** F0 16/20 (max confidence 0.903), F0b 12/20 (0.906),
+  F2 12/20 (0.876), T0 8/20 (0.898). So it is not 20/20 every time and the
+  spread is wide, 8 to 20. The prompt *text* is identical across arms but the
+  audio is re-rendered per run, so these are nine draws from five flat sentences
+  rather than nine passes over one fixed file. What does not move is the shape:
+  on synthetic speech with no emotion in it the classifier commits to `anger`
+  or to `neutral`, never to anything in between, and never with low confidence.
+  Five clean 20/20 arms out of nine is a stronger version of this finding than
+  the single 20/20 run this section used to lead with, not a weaker one.
 - **Probe, 30 synthetic utterances** across five texts and all six preset
   renderings, no ground truth available: `anger` 23, `neutral` 5, `sad` 2,
   **median confidence 0.73**.
@@ -566,12 +578,13 @@ IQR 255 ms against the TTS arm's 123 ms.
 
 **That 0/48 is now known to be the wrong question.** §1.3 re-ran the same kind of
 material with a detector that compares against the source file's speech offset
-rather than the captured buffer's, and found **3 truncations in 24 turns**, each
-one losing 1.7–2.3 seconds. The detector here looks for a *negative* hangover,
-and truncating the buffer drags the measured offset earlier with it, so the
-hangover stays positive and the check reads clean — it read +5 to +8 ms on the
-three turns §1.3 caught. Both numbers are real; only one of them answers "did the
-loop cut the user off". Read §1.3.
+rather than the captured buffer's, and found **3 truncations in 24 turns on each
+arm**: 1.7 to 2.3 seconds lost per turn on H0, and 0.19 to 2.3 seconds on H1.
+The detector here looks for a *negative* hangover, and truncating the buffer
+drags the measured offset earlier with it, so the hangover stays positive and
+the check reads clean — it read +5 to +8 ms on H0's three turns and +7 to +32 ms
+on H1's. Both numbers are real; only one of them answers "did the loop cut the
+user off". Read §1.3.
 
 **The single cheapest improvement available to this system is a better
 endpointer**, not a faster model. §1.1 removed 337 ms of dead hangover from the
@@ -584,12 +597,12 @@ configuration.
 ## 6. Honest limitations
 
 1. **The emotion classifier is trained on acted speech and is unreliable off
-   that distribution.** §4 measures this rather than warning about it: 20/20
-   confident `anger` on a neutral synthetic voice, and 12–16/20 on three further
-   runs of the same audio. It has not been evaluated on
-   spontaneous conversational audio at all, because no labelled spontaneous
-   audio was available on this machine. Treat every live emotion output as
-   unverified.
+   that distribution.** §4 measures this rather than warning about it: a clean
+   20/20 confident `anger` on a neutral synthetic voice in five of the nine arms
+   driven by that audio, and 8–16/20 in the other four. It has not been
+   evaluated on spontaneous conversational audio at all, because no labelled
+   spontaneous audio was available on this machine. Treat every live emotion
+   output as unverified.
 2. **The label itself is soft.** Audio-only listener agreement on CREMA-D is
    α = 0.265, and the reliability ceiling is 0.727. "74.9% accurate" means
    74.9% at reproducing what one actor was *told* to perform, which is 25.6
@@ -605,16 +618,19 @@ configuration.
 5. **Prosody control is crude.** Four presets. Plain Piper has no pitch knob at
    all, `pmod` is inert on `say`, the transplant has a pitch knob but its
    `range_scale` is a single scalar over the whole utterance rather than
-   anything phrase-aware, and pause structure is untested — every utterance here
-   has zero detected pauses ≥ 100 ms, so the three pause features carry no
-   information.
+   anything phrase-aware, and pause structure is untested — every utterance in
+   the §3a sweep has zero detected pauses ≥ 100 ms, so the three pause features
+   carry no information there. They do move in §3b, but only because the reply
+   text varies between turns there, so what they measure is the sentences the LM
+   produced and not the prosody knobs.
 6. **The emotion→preset mapping is a judgement call, not a result.** Six classes
    onto four presets; `disgust` is mapped to neutral because none of the four is
    a good-faith rendering of it, and inventing one would be worse than
    abstaining.
-7. **n is small.** 20–24 turns per arm, 3–5 per emotion group in §3b. Every
-   figure is reported with n and spread; none of them should be read as a point
-   estimate.
+7. **n is small.** 20–24 turns per arm. In §3b the per-emotion groups are 3–5
+   on the Piper and `say` runs and **2–5** on the transplant run, whose `happy`
+   group is n = 2. Every figure is reported with n and spread; none of them
+   should be read as a point estimate.
 8. **ASR is chunked, not streaming, and the final decode throws away the
    partial's work.** Inherited from aliveness-threshold, unfixed. The fast path
    hides that waste inside the hangover rather than removing it — the 246 ms
@@ -762,6 +778,8 @@ Model weights are not in git.
 ---
 
 Every number above came from a run that happened on this machine — Apple M4 Pro,
-24 GB, macOS, Python 3.12 — on 2026-08-26. Machine load is recorded in every
-result JSON, because the ASR stage is CPU-bound and the load is part of the
-result.
+24 GB, macOS, Python 3.12 — across 2026-08-26 and 2026-08-27: arms A, B, C, D
+and E late on the 26th, and the fast-path, transplant and CREMA-D arms
+(F0/F1/F2/F3/F0b, T0/T1, H0/H1, TC) just after midnight on the 27th. Machine
+load is recorded in every result JSON, because the ASR stage is CPU-bound and
+the load is part of the result.
