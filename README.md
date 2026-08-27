@@ -558,10 +558,24 @@ absolute floor of −45 dBFS, tuned for a voice at steady level; a person traili
 off at the end of a sentence drops under that floor while the measurement VAD
 (−55 dBFS) still counts them as speaking.
 
-Nothing was truncated in these runs (0/48), but the margin is thin, and this is
-why the real-actor gaps have IQR 255 ms against the TTS arm's 123 ms. **The
-single cheapest improvement available to this system is a better endpointer**,
-not a faster model.
+No turn in these runs registered as truncated (0/48) **by the detector this
+section uses**, but the margin is thin, and this is why the real-actor gaps have
+IQR 255 ms against the TTS arm's 123 ms.
+
+**That 0/48 is now known to be the wrong question.** §1.3 re-ran the same kind of
+material with a detector that compares against the source file's speech offset
+rather than the captured buffer's, and found **3 truncations in 24 turns**, each
+one losing 1.7–2.3 seconds. The detector here looks for a *negative* hangover,
+and truncating the buffer drags the measured offset earlier with it, so the
+hangover stays positive and the check reads clean — it read +5 to +8 ms on the
+three turns §1.3 caught. Both numbers are real; only one of them answers "did the
+loop cut the user off". Read §1.3.
+
+**The single cheapest improvement available to this system is a better
+endpointer**, not a faster model. §1.1 removed 337 ms of dead hangover from the
+gap without touching the endpointer at all, which makes the endpointer a larger
+share of what is left, not a smaller one: it is 370 of the 558 ms in the shipping
+configuration.
 
 ---
 
@@ -569,7 +583,8 @@ not a faster model.
 
 1. **The emotion classifier is trained on acted speech and is unreliable off
    that distribution.** §4 measures this rather than warning about it: 20/20
-   confident `anger` on a neutral synthetic voice. It has not been evaluated on
+   confident `anger` on a neutral synthetic voice, and 12–16/20 on three further
+   runs of the same audio. It has not been evaluated on
    spontaneous conversational audio at all, because no labelled spontaneous
    audio was available on this machine. Treat every live emotion output as
    unverified.
@@ -588,8 +603,9 @@ not a faster model.
 5. **Prosody control is crude.** Four presets. Plain Piper has no pitch knob at
    all, `pmod` is inert on `say`, the transplant has a pitch knob but its
    `range_scale` is a single scalar over the whole utterance rather than
-   anything phrase-aware, and pause structure is untested — every utterance here has zero detected pauses ≥ 100 ms,
-   so the three pause features carry no information.
+   anything phrase-aware, and pause structure is untested — every utterance here
+   has zero detected pauses ≥ 100 ms, so the three pause features carry no
+   information.
 6. **The emotion→preset mapping is a judgement call, not a result.** Six classes
    onto four presets; `disgust` is mapped to neutral because none of the four is
    a good-faith rendering of it, and inventing one would be worse than
@@ -611,6 +627,14 @@ not a faster model.
     taken in one session with its own internal control, which is the mitigation,
     not a fix. Numbers from different sessions in this repo should not be
     compared to each other either.
+
+    The §1.1 session is a live example. It ran with two other compute jobs on
+    the same laptop and load average moved between 3.9 and 6.5 across the arms —
+    it is recorded per arm in `fastsummary.py` and in every result JSON. That is
+    why the control was run twice, first and last: it drifted 895 → 861 ms, a
+    fifth of the 337 ms effect, so the contention is bounded rather than assumed
+    away. Any absolute gap in §1.1 would likely be lower on a quiet machine; the
+    *differences* are what the arms were interleaved to protect.
 11. **The F0 transplant is measured acoustically and by one classifier, not by
     a listener.** It landed (§2, §3), it does what it claims to F0, and nobody
     has said whether the resynthesised voice sounds *good*. WORLD round trips
