@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+expressive_s2s.egg-info/PKG-INFO
+expressive_s2s.egg-info/SOURCES.txt
+expressive_s2s.egg-info/dependency_links.txt
+expressive_s2s.egg-info/requires.txt
+expressive_s2s.egg-info/top_level.txt

@@ -1,0 +1,25 @@
+[project]
+name = "expressive-s2s"
+version = "0.1.0"
+description = "Emotion-conditioned speech-to-speech: hear how you sound, answer in a voice that matches"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "soundfile>=0.13",
+    "faster-whisper>=1.0",
+    "torch>=2.2",
+    "transformers>=4.40",
+    "piper-tts>=1.2",
+    "sounddevice>=0.4",
+    "librosa>=0.10",
+    "praat-parselmouth>=0.4",
+    "pandas>=2.0",
+    "mlx-lm>=0.20; platform_system == 'Darwin' and platform_machine == 'arm64'",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["s2s"]

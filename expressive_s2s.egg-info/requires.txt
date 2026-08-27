@@ -1,0 +1,13 @@
+numpy>=2.0
+soundfile>=0.13
+faster-whisper>=1.0
+torch>=2.2
+transformers>=4.40
+piper-tts>=1.2
+sounddevice>=0.4
+librosa>=0.10
+praat-parselmouth>=0.4
+pandas>=2.0
+
+[:platform_system == "Darwin" and platform_machine == "arm64"]
+mlx-lm>=0.20
