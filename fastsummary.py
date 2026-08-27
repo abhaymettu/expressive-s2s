@@ -7,6 +7,8 @@ prose and not in this output, it should not be in the prose.
 from __future__ import annotations
 
 import json
+import re
+import statistics
 import sys
 from pathlib import Path
 
@@ -27,6 +29,38 @@ STAGES = ["endpoint_hangover_ms", "asr_final_dispatch_ms", "asr_final_ms",
           "playback_dispatch_ms"]
 
 
+def _wer(ref: str, hyp: str) -> float:
+    """Word error rate, lowercased and stripped of punctuation.
+
+    Copied from aliveness-threshold/live/loop.py. Only meaningful because the
+    prompt text is known exactly: it is how a smaller/faster final decode, or a
+    speculation that started before the talker finished, gets charged for what
+    it costs in accuracy rather than only credited for what it saves in ms.
+    """
+    w = lambda s: re.sub(r"[^a-z0-9' ]", " ", s.lower()).split()  # noqa: E731
+    r, h = w(ref), w(hyp)
+    if not r:
+        return 0.0
+    prev = list(range(len(h) + 1))
+    for i, rw in enumerate(r, 1):
+        cur = [i]
+        for j, hw in enumerate(h, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (rw != hw)))
+        prev = cur
+    return prev[-1] / len(r)
+
+
+def wer_of(run: dict) -> float | None:
+    """Mean WER over a run, or None when the label is not the spoken text.
+
+    The CREMA-D arms carry a filename as `label`, not a transcript, so there is
+    nothing to score against and this returns None rather than a wrong number.
+    """
+    vals = [_wer(t["label"], t["transcript"] or "") for t in run["turns"]
+            if t.get("label") and " " in t["label"] and "__" not in t["label"]]
+    return round(statistics.fmean(vals), 4) if vals else None
+
+
 def main(paths=None) -> int:
     arms = [(p, lbl) for p, lbl in ARMS if Path(p).exists()] if paths is None \
         else [(p, p) for p in paths]
@@ -34,17 +68,18 @@ def main(paths=None) -> int:
         print("no run JSONs yet")
         return 1
 
-    print(f"{'arm':<36}{'gap median [IQR]':>26}{'n':>4}{'spec':>7}{'launch':>8}"
-          f"{'falseEP':>9}{'cue':>6}")
+    print(f"{'arm':<34}{'gap median [IQR]':>22}{'n':>4}{'spec':>6}{'launch':>7}"
+          f"{'falseEP':>9}{'cue':>5}{'WER':>8}{'load':>7}")
     for p, lbl in arms:
         r = json.loads(Path(p).read_text())
         g = r["summary_ms"]["gap_ms"]
         sp, ep, cu = r["speculation"], r["endpointing"], r["cue"]
-        print(f"{lbl:<36}{g['median']:>10.0f} ms [{g['p25']:.0f}-{g['p75']:.0f}]"
-              f"{'':>{max(0, 26 - 10 - 4 - len(f'[{g['p25']:.0f}-{g['p75']:.0f}]'))}}"
-              f"{g['n']:>4}"
-              f"{sp['turns_served_speculatively']:>7}{sp['pipelines_launched']:>8}"
-              f"{ep['false_endpoints']:>5}/{ep['n']:<3}{cu['n_fired']:>6}")
+        w = wer_of(r)
+        cell = f"{g['median']:.0f} [{g['p25']:.0f}-{g['p75']:.0f}]"
+        print(f"{lbl:<34}{cell:>22}{g['n']:>4}"
+              f"{sp['turns_served_speculatively']:>6}{sp['pipelines_launched']:>7}"
+              f"{ep['false_endpoints']:>5}/{ep['n']:<3}{cu['n_fired']:>5}"
+              f"{('-' if w is None else f'{w:.3f}'):>8}{r['loadavg_start'][0]:>7.1f}")
 
     print("\ngap, full spread")
     print(f"{'arm':<36}{'median':>8}{'p25':>8}{'p75':>8}{'min':>8}{'max':>8}"
