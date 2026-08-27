@@ -63,6 +63,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # --- unchanged from aliveness-threshold/live/loop.py ------------------------
 CHUNK_MS = 20.0
 HANGOVER_MS = 350.0
+# --fast only: how long the input must be quiet before the whole downstream
+# pipeline -- decode, classifier, LM, TTS -- is speculatively started on the
+# audio so far. Strictly below the hangover; the difference is the head start.
+# 80 ms is the value aliveness-threshold swept to and measured; see FastPath.
+EARLY_ARM_MS = 80.0
 PARTIAL_EVERY_MS = 500.0
 MAX_TURN_MS = 20000.0
 LIVE_FLOOR_DBFS = -45.0
@@ -219,6 +224,126 @@ class Player:
         self.stream.close()
 
 
+class FastPath:
+    """Run the final decode, the emotion classifier, the LM and the TTS *during*
+    the endpointer's hangover instead of after it.
+
+    VENDORED from aliveness-threshold/live/loop.py `FastPath`
+    (github.com/abhaymettu/aliveness-threshold). The arming rule, the staleness
+    check, the sequence-number handshake and `claim`/`reset` are that class,
+    unchanged in behaviour. **The modification is that this pipeline has an
+    emotion stage in it**, and the emotion conditions both the LM prompt and the
+    TTS preset -- so the classifier has to run inside the hangover too, on the
+    same snapshot the decode sees, or the speculation cannot produce the reply.
+
+    Nothing here is guessed. The moment the input has been quiet for `arm_ms`
+    the pipeline is started on the audio captured so far; everything between
+    that snapshot and the endpoint is silence by definition. The only thing
+    being bet on is that the talker has actually stopped, and that is checked
+    rather than assumed: if speech resumes the snapshot is stale, the work is
+    thrown away, and the turn falls back to the serial path.
+
+    Not bit-identical to the serial path: the speculative decode sees the same
+    speech but ~270 ms less trailing silence, and whisper can answer differently
+    to that. What upstream measured is that it does not answer *worse*.
+    """
+
+    def __init__(self, asr: "Asr", lm: "Lm", clf, voice, parallel_emotion: bool):
+        self.asr, self.lm, self.clf, self.voice = asr, lm, clf, voice
+        self.parallel_emotion = parallel_emotion
+        self.thread: threading.Thread | None = None
+        self.seq = -1          # speech counter at the moment of arming
+        self.out: dict | None = None
+        self.launches = 0
+
+    def arm(self, x: np.ndarray, seq: int) -> None:
+        """Start the pipeline on `x`. No-op if one is already in flight."""
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self.seq, self.out, self.launches = seq, None, self.launches + 1
+        self.thread = threading.Thread(target=self._work, args=(x, seq), daemon=True)
+        self.thread.start()
+
+    def inflight(self) -> bool:
+        """A speculation is running or has a result waiting. The cue reads this:
+        if the pipeline is already going, the reply is close and a filled pause
+        started now would be cut off mid-word by it."""
+        return self.thread is not None and (self.thread.is_alive() or self.out is not None)
+
+    def _work(self, x: np.ndarray, seq: int) -> None:
+        box_emo: dict = {}
+        t_final0 = time.perf_counter()
+        if self.clf is None:
+            box_emo = {"emotion": "neutral", "confidence": None, "probs": None,
+                       "ms": 0.0, "audio_sha": emo.sha(x), "fed_samples": 0,
+                       "truncated": False, "ablated": True}
+        elif self.parallel_emotion:
+            ew = threading.Thread(
+                target=lambda: box_emo.update(self.clf.predict(x, audio.SR)), daemon=True)
+            ew.start()
+        text = self.asr.text(x)
+        t_final = time.perf_counter()
+        if self.clf is not None:
+            if self.parallel_emotion:
+                ew.join(timeout=30.0)
+            else:
+                box_emo.update(self.clf.predict(x, audio.SR))
+        t_emo = time.perf_counter()
+        detected = box_emo["emotion"]
+        sentence, t_tok, t_sent, n_tok = self.lm.first_sentence(
+            text or "Hello?", prosody.hint_for(detected))
+        preset_name, cfg = prosody.preset_for(detected, self.voice.backend)
+        t_tts0 = time.perf_counter()
+        y = self.voice.synth(sentence, cfg=cfg)
+        out = {
+            "seq": seq, "transcript": text, "sentence": sentence, "n_tok": n_tok,
+            "audio": y, "emotion": box_emo, "preset": preset_name, "cfg": cfg,
+            "pipeline_audio": x,
+            "t_final0": t_final0, "t_final": t_final, "t_emotion": t_emo,
+            "t_tok": t_tok, "t_sent": t_sent, "t_tts0": t_tts0,
+            "t_tts": time.perf_counter(),
+        }
+        if self.seq == seq:  # still the newest arming; a later one supersedes us
+            self.out = out
+
+    def claim(self, seq: int, timeout: float = 30.0) -> dict | None:
+        """The finished pipeline, or None if the snapshot went stale.
+
+        Stale means speech arrived after the snapshot, so the snapshot is not
+        the whole utterance and its transcript would be a truncation.
+        """
+        if self.thread is None or self.seq != seq:
+            return None
+        self.thread.join(timeout)
+        return self.out if self.out and self.out["seq"] == seq else None
+
+    def reset(self) -> None:
+        """New turn. Wait out any speculation the last turn abandoned rather
+        than letting it steal cores from this one."""
+        if self.thread is not None:
+            self.thread.join(timeout=30.0)
+        self.thread, self.seq, self.out, self.launches = None, -1, None, 0
+
+
+def _critical_path(t0: float, stamps) -> dict:
+    """Non-overlapping stage breakdown from `stamps`, a list of (name, time).
+
+    VENDORED from aliveness-threshold/live/loop.py, unmodified.
+
+    Each stage is charged only the time it added *beyond everything already
+    elapsed*, so work that ran in parallel with an earlier stage -- or entirely
+    inside the endpointer's hangover -- reads 0, which is what it costs the
+    listener. The stages therefore still sum exactly to the gap, which is what
+    the self-check asserts. On a strictly serial run this is the plain
+    difference and every number is unchanged.
+    """
+    out, prev = {}, t0
+    for name, t in stamps:
+        prev, before = max(prev, t), prev
+        out[name] = round((prev - before) * 1000.0, 2)
+    return out
+
+
 def _pace_wav(x: np.ndarray, q: queue.Queue, t0: float) -> None:
     n = audio.samples(CHUNK_MS)
     for i in range(0, len(x), n):
@@ -248,7 +373,8 @@ def _mic(q: queue.Queue, stop: threading.Event, box: dict):
 
 
 def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
-            on_endpoint=None) -> dict:
+            on_endpoint=None, fast: "FastPath | None" = None,
+            arm_ms: float = EARLY_ARM_MS) -> dict:
     """Stream in, partial-decode in the background, stop on the endpointer,
     final-decode, and classify emotion.
 
@@ -297,6 +423,7 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
     pw.start()
 
     peak, last_speech, t_end, ended = 0.0, None, None, False
+    speech_seq, armed = 0, False
     deadline = time.perf_counter() + MAX_TURN_MS / 1000.0
     while not ended:
         if time.perf_counter() > deadline:
@@ -315,9 +442,19 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
         r = float(np.sqrt((c.astype(np.float64) ** 2).mean()))
         peak = max(peak, r)
         if r >= peak * 10 ** (-35.0 / 20.0) and r >= 10 ** (LIVE_FLOOR_DBFS / 20.0):
-            last_speech = now
+            last_speech, armed = now, False
+            speech_seq += 1
         elif last_speech is not None and (now - last_speech) * 1000.0 >= HANGOVER_MS:
             t_end, ended = now, True
+        elif (fast is not None and not armed and last_speech is not None
+              and (now - last_speech) * 1000.0 >= arm_ms):
+            # quiet long enough to bet the turn is over. Partials are worthless
+            # from here on and the final decode wants those cores.
+            armed = True
+            stop_partials.set()
+            with lock:
+                snap = np.concatenate(chunks)
+            fast.arm(snap, speech_seq)
 
     if on_endpoint:
         on_endpoint(t_end)
@@ -326,6 +463,41 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
     stop_partials.set()
     pw.join(timeout=10.0)
     x = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+
+    early = fast.claim(speech_seq) if fast is not None else None
+    if early is not None:
+        # The decode, the classifier, the LM and the TTS all ran inside the
+        # hangover. `pipeline_audio` is the snapshot they saw -- a prefix of the
+        # full capture, the rest being silence -- and it, not `x`, is what the
+        # provenance assertion has to check the classifier against.
+        p = early["pipeline_audio"]
+        segs = audio.segments(x, **SEG_KW)
+        if not segs:
+            raise RuntimeError("no speech found in captured input; nothing to time against")
+        return {
+            "audio": x,
+            "audio_sha": emo.sha(x),
+            "pipeline_audio_sha": emo.sha(p),
+            "pipeline_audio_is_prefix": bool(
+                len(p) <= len(x) and np.array_equal(x[: len(p)], p)),
+            "pipeline_audio_ms": round(audio.millis(len(p)), 1),
+            "t_stream0": box["t0"],
+            "t_speech_onset": box["t0"] + segs[0][0] / 1000.0,
+            "t_speech_offset": box["t0"] + segs[-1][1] / 1000.0,
+            "t_endpoint": t_end,
+            "t_first_partial": partial["t"],
+            "partial_text": partial["text"],
+            "t_final0": early["t_final0"],
+            "t_final": early["t_final"],
+            "t_emotion": early["t_emotion"],
+            "emotion": early["emotion"],
+            "emotion_standalone_ms": early["emotion"]["ms"],
+            "transcript": early["transcript"],
+            "input_ms": audio.millis(len(x)),
+            "n_segments": len(segs),
+            "early": early,
+            "early_launches": fast.launches,
+        }
 
     # this exact array, and nothing else, is what the classifier is allowed to see
     turn_sha = emo.sha(x)
@@ -338,7 +510,6 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
                    "ms": 0.0, "audio_sha": turn_sha, "fed_samples": 0,
                    "truncated": False, "ablated": True}
     elif parallel_emotion:
-        t_emo0 = time.perf_counter()
         ew = threading.Thread(
             target=lambda: box_emo.update(clf.predict(x, audio.SR)), daemon=True)
         ew.start()
@@ -348,20 +519,11 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
     final = asr.text(x)
     t_final = time.perf_counter()
 
-    if clf is None:
-        t_emo = time.perf_counter()
-        emotion_stage_ms = 0.0
-    elif parallel_emotion:
+    if clf is not None and parallel_emotion:
         ew.join(timeout=30.0)
-        t_emo = time.perf_counter()
-        # what the overlap actually cost the gap: only the part of the classifier
-        # that did not fit inside the ASR decode
-        emotion_stage_ms = max(0.0, round((t_emo - t_final) * 1000.0, 2))
-    else:
-        t_emo0 = time.perf_counter()
+    elif clf is not None:
         box_emo.update(clf.predict(x, audio.SR))
-        t_emo = time.perf_counter()
-        emotion_stage_ms = round((t_emo - t_emo0) * 1000.0, 2)
+    t_emo = time.perf_counter()
 
     if not box_emo:
         raise RuntimeError("emotion worker produced nothing")
@@ -372,6 +534,11 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
     return {
         "audio": x,
         "audio_sha": turn_sha,
+        "pipeline_audio_sha": turn_sha,      # serial path: the pipeline saw all of it
+        "pipeline_audio_is_prefix": True,
+        "pipeline_audio_ms": round(audio.millis(len(x)), 1),
+        "early": None,
+        "early_launches": fast.launches if fast is not None else 0,
         "t_stream0": t_stream0,
         "t_speech_onset": t_stream0 + segs[0][0] / 1000.0,
         "t_speech_offset": t_stream0 + segs[-1][1] / 1000.0,
@@ -382,7 +549,6 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
         "t_final": t_final,
         "t_emotion": t_emo,
         "emotion": box_emo,
-        "emotion_stage_ms": emotion_stage_ms,
         "emotion_standalone_ms": box_emo["ms"],
         "transcript": final,
         "input_ms": audio.millis(len(x)),
@@ -391,10 +557,15 @@ def capture(source, asr: Asr, partial_asr: Asr, clf, parallel_emotion: bool,
 
 
 def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
-             label="", use_cue=True, parallel_emotion=False, save_wav=None) -> dict:
+             label="", use_cue=True, parallel_emotion=False, save_wav=None,
+             fast: "FastPath | None" = None, arm_ms: float = EARLY_ARM_MS,
+             ref_offset_ms: float | None = None) -> dict:
     player.new_turn()
+    if fast is not None:
+        fast.reset()
     fired = threading.Event()
     cue_lock = threading.Lock()
+    cue_suppressed = [False]
 
     def on_endpoint(t_end):
         """Arm the cue the moment the endpointer fires.
@@ -415,22 +586,38 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
             # not fire behind it. Without this the cue can land AFTER the reply
             # on a slow turn and be timed as if it came first.
             with cue_lock:
-                if not fired.is_set():
-                    player.play("cue", cue_audio)
-                    fired.set()
+                if fired.is_set():
+                    return
+                if fast is not None and fast.inflight():
+                    # A speculation is already running or already finished, so
+                    # the reply is within ~200 ms. The cue is 305 ms long; firing
+                    # it now guarantees the reply cuts it off mid-word, which is
+                    # worse than the silence it was meant to cover.
+                    cue_suppressed[0] = True
+                    return
+                player.play("cue", cue_audio)
+                fired.set()
 
         threading.Thread(target=arm, daemon=True).start()
 
-    cap = capture(source, asr, partial_asr, clf, parallel_emotion, on_endpoint)
+    cap = capture(source, asr, partial_asr, clf, parallel_emotion, on_endpoint,
+                  fast=fast, arm_ms=arm_ms)
     off = cap["t_speech_offset"]
     detected = cap["emotion"]["emotion"]
-    hint = prosody.hint_for(detected)
-    sentence, t_tok, t_sent, n_tok = lm.first_sentence(cap["transcript"] or "Hello?", hint)
-
-    preset_name, cfg = prosody.preset_for(detected, voice.backend)
-    t_tts0 = time.perf_counter()
-    y = voice.synth(sentence, cfg=cfg)
-    t_tts = time.perf_counter()
+    early = cap["early"]
+    if early is not None:
+        # decode, classifier, LM and TTS all already ran inside the hangover
+        sentence, t_tok, t_sent, n_tok = (
+            early["sentence"], early["t_tok"], early["t_sent"], early["n_tok"])
+        preset_name, cfg = early["preset"], early["cfg"]
+        t_tts0, y, t_tts = early["t_tts0"], early["audio"], early["t_tts"]
+    else:
+        hint = prosody.hint_for(detected)
+        sentence, t_tok, t_sent, n_tok = lm.first_sentence(cap["transcript"] or "Hello?", hint)
+        preset_name, cfg = prosody.preset_for(detected, voice.backend)
+        t_tts0 = time.perf_counter()
+        y = voice.synth(sentence, cfg=cfg)
+        t_tts = time.perf_counter()
     if len(y) == 0:
         raise RuntimeError(f"TTS produced no audio for {sentence!r}")
 
@@ -451,20 +638,48 @@ def run_turn(source, asr, partial_asr, clf, lm, voice, player, cue_audio,
         audio.write(save_wav, y)
 
     ms = lambda a, b: round((a - b) * 1000.0, 2)  # noqa: E731
-    stage = {
-        "asr_partial_first_ms": ms(cap["t_first_partial"], cap["t_stream0"])
-        if cap["t_first_partial"] else None,
-        "endpoint_hangover_ms": ms(cap["t_endpoint"], off),
-        "asr_final_dispatch_ms": ms(cap["t_final0"], cap["t_endpoint"]),
-        "asr_final_ms": ms(cap["t_final"], cap["t_final0"]),
-        "emotion_ms": cap["emotion_stage_ms"],
-        "lm_ttft_ms": ms(t_tok, cap["t_emotion"]),
-        "lm_sentence_ms": ms(t_sent, t_tok),
-        "tts_ms": ms(t_tts, t_tts0),
-        "playback_dispatch_ms": ms(t_out, t_tts),
-    }
+    # Critical path, not wall differences: stages can now overlap each other and
+    # the hangover, so each is charged only what it added beyond everything
+    # already elapsed. On the serial path this is the plain difference and every
+    # number is identical to before. (aliveness-threshold/live/loop.py)
+    stage = _critical_path(off, [
+        ("endpoint_hangover_ms", cap["t_endpoint"]),
+        ("asr_final_dispatch_ms", cap["t_final0"]),
+        ("asr_final_ms", cap["t_final"]),
+        ("emotion_ms", cap["t_emotion"]),
+        ("lm_ttft_ms", t_tok),
+        ("lm_sentence_ms", t_sent),
+        ("tts_ms", t_tts),
+        ("playback_dispatch_ms", t_out),
+    ])
+    stage["asr_partial_first_ms"] = (
+        ms(cap["t_first_partial"], cap["t_stream0"]) if cap["t_first_partial"] else None)
+    # a false endpoint is the endpointer calling the turn over while the talker
+    # is still going: the captured speech offset lands before the input's real
+    # one. Only knowable when the input is a file whose offset we measured first.
+    off_ms = ms(off, cap["t_stream0"])
+    truncated = bool(ref_offset_ms is not None and off_ms < ref_offset_ms - 50.0)
     t_cue = player.t_first.get("cue")
     return {
+        # what each stage cost on its own clock. stage_ms charges only what
+        # reached the listener; this is the work behind it, so a stage hidden
+        # inside the hangover can still be compared across configs.
+        "work_ms": {
+            "asr_final": ms(cap["t_final"], cap["t_final0"]),
+            "emotion": cap["emotion_standalone_ms"],
+            "lm_ttft": ms(t_tok, cap["t_emotion"]),
+            "lm_sentence": ms(t_sent, t_tok),
+            "tts": ms(t_tts, t_tts0),
+        },
+        "speculated": early is not None,
+        "speculations_launched": cap["early_launches"],
+        "pipeline_audio_sha": cap["pipeline_audio_sha"],
+        "pipeline_audio_is_prefix": cap["pipeline_audio_is_prefix"],
+        "pipeline_audio_ms": cap["pipeline_audio_ms"],
+        "speech_offset_ms": round(off_ms, 1),
+        "ref_speech_offset_ms": ref_offset_ms,
+        "truncated": truncated,
+        "cue_suppressed_by_speculation": cue_suppressed[0],
         "label": label,
         "transcript": cap["transcript"],
         "partial_text": cap["partial_text"],
@@ -518,12 +733,13 @@ def render_prompts(voice, texts, lead_ms=300.0, tail_ms=900.0):
 
 def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
         use_cue=True, parallel_emotion=False, prompt_wavs=None, save_wavs=None,
-        no_emotion=False) -> dict:
+        no_emotion=False, fast=False, arm_ms=EARLY_ARM_MS,
+        final_model=ASR_MODEL) -> dict:
     load0 = os.getloadavg()
     voice = pick_voice(tts_backend)
     prompt_voice = pick_voice("auto")
     t0 = time.perf_counter()
-    asr, partial_asr, lm = Asr(), Asr(PARTIAL_MODEL), Lm()
+    asr, partial_asr, lm = Asr(final_model), Asr(PARTIAL_MODEL), Lm()
     clf = None if no_emotion else emo.Classifier()
     load_ms = (time.perf_counter() - t0) * 1000.0
     player = Player(device)
@@ -532,6 +748,10 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
         prompts = [(Path(p).stem, audio.read(p)) for p in prompt_wavs]
     else:
         prompts = render_prompts(prompt_voice, PROMPTS)
+    # where each input's speech actually ends, measured the same way the gap is,
+    # so an endpointer that cuts the talker off is detectable rather than assumed
+    ref_off = [float(audio.segments(x, **SEG_KW)[-1][1]) for _, x in prompts]
+    fp = FastPath(asr, lm, clf, voice, parallel_emotion) if fast else None
     cue_audio = cues.cue_audio(CUE, voice=prompt_voice) if use_cue else np.zeros(0, np.float32)
 
     t0 = time.perf_counter()
@@ -551,7 +771,9 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
             wav = str(Path(save_wavs) / f"turn{i:03d}.wav") if save_wavs else None
             t = run_turn(src, asr, partial_asr, clf, lm, voice, player, cue_audio,
                          label=text, use_cue=use_cue,
-                         parallel_emotion=parallel_emotion, save_wav=wav)
+                         parallel_emotion=parallel_emotion, save_wav=wav,
+                         fast=fp, arm_ms=arm_ms,
+                         ref_offset_ms=None if mic else ref_off[i % len(prompts)])
             t["turn"] = i
             turns.append(t)
             # confidence is None on the ablation arm, where no classifier ran
@@ -564,12 +786,14 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
     finally:
         player.close()
 
-    keys = ["gap_ms", "first_audio_ms", "acoustic_gap_ms", "cue_gap_ms",
-            "emotion_standalone_ms"] + [f"stage_ms.{k}" for k in turns[0]["stage_ms"]]
+    keys = (["gap_ms", "first_audio_ms", "acoustic_gap_ms", "cue_gap_ms",
+             "emotion_standalone_ms"]
+            + [f"stage_ms.{k}" for k in turns[0]["stage_ms"]]
+            + [f"work_ms.{k}" for k in turns[0]["work_ms"]])
     summary = {}
     for k in keys:
-        vals = [(t["stage_ms"][k.split(".", 1)[1]] if k.startswith("stage_ms.") else t[k])
-                for t in turns]
+        grp, _, sub = k.partition(".")
+        vals = [(t[grp][sub] if sub else t[k]) for t in turns]
         vals = [v for v in vals if v is not None]
         if vals:
             summary[k] = _stats(vals)
@@ -610,7 +834,26 @@ def run(n_turns=20, out_path=None, device=None, mic=False, tts_backend="auto",
                     "but pmod is inert and each utterance is a cold subprocess "
                     "(~2.6s). Source: expressive-tts-audit"},
         "cue": {"enabled": use_cue, "cue": CUE, "fire_at_ms": CUE_AT_MS,
-                "n_fired": sum(1 for t in turns if t["cue"])},
+                "n_fired": sum(1 for t in turns if t["cue"]),
+                "n_suppressed_by_speculation":
+                    sum(1 for t in turns if t["cue_suppressed_by_speculation"]),
+                "n_preempted_by_reply":
+                    sum(1 for t in turns if t["cue_preempted_by_reply"])},
+        "mode": ("fast (decode, classifier, LM and TTS run inside the hangover)"
+                 if fast else "baseline (serial, nothing starts before the endpoint)"),
+        "speculation": {
+            "armed_after_silence_ms": arm_ms if fast else None,
+            "turns_served_speculatively": sum(1 for t in turns if t["speculated"]),
+            "pipelines_launched": sum(t["speculations_launched"] for t in turns),
+        },
+        # a shorter effective hangover that cuts the talker off is not a faster
+        # loop, so this travels with every gap number and is never reported apart
+        # from it. `truncated` = this turn's silence-trimmed speech offset landed
+        # >50ms before the offset measured on the source file.
+        "endpointing": {
+            "false_endpoints": sum(1 for t in turns if t["truncated"]),
+            "n": sum(1 for t in turns if t["ref_speech_offset_ms"] is not None),
+        },
         "prompt_tts": {"backend": prompt_voice.backend, "voice": prompt_voice.name},
         "output_device": player.device,
         "output_device_latency_ms": round(player.latency_ms, 2),
@@ -669,9 +912,19 @@ def selfcheck(n_turns: int = 3, **kw) -> dict:
         assert t["reply"], f"turn {n}: empty reply"
 
         # -- the emotion-provenance check --
-        assert t["emotion_audio_sha"] == t["input_audio_sha"], (
-            f"turn {n}: classifier was fed audio {t['emotion_audio_sha']} but this turn "
-            f"captured {t['input_audio_sha']} -- emotion is off by a turn"
+        # On the serial path pipeline_audio_sha IS input_audio_sha. On the fast
+        # path the classifier saw the speculative snapshot, so the assertion is
+        # made in two halves that together say the same thing: the classifier
+        # saw exactly what the rest of the pipeline saw, and what the pipeline
+        # saw is a genuine prefix of THIS turn's capture -- not a stale buffer,
+        # not the previous turn's audio.
+        assert t["emotion_audio_sha"] == t["pipeline_audio_sha"], (
+            f"turn {n}: classifier was fed audio {t['emotion_audio_sha']} but the pipeline "
+            f"ran on {t['pipeline_audio_sha']} -- emotion is conditioning a different reply"
+        )
+        assert t["pipeline_audio_is_prefix"], (
+            f"turn {n}: the audio the pipeline ran on is not a prefix of this turn's "
+            f"capture {t['input_audio_sha']} -- emotion is off by a turn"
         )
         assert t["emotion_audio_sha"] not in seen_shas, (
             f"turn {n}: audio fingerprint {t['emotion_audio_sha']} already seen on an "
@@ -682,8 +935,20 @@ def selfcheck(n_turns: int = 3, **kw) -> dict:
         assert t["detected_emotion"] in emo.EMOTIONS, f"turn {n}: bad label"
         assert t["prosody_preset"] == prosody.EMOTION_TO_PRESET[t["detected_emotion"]], (
             f"turn {n}: spoke with {t['prosody_preset']} for {t['detected_emotion']}")
-        if res["emotion"]["schedule"].startswith("serial"):  # noqa: SIM102
-            assert t["stage_ms"]["emotion_ms"] > 0, f"turn {n}: emotion stage not timed"
+        if res["emotion"]["ckpt"] is not None:
+            # the classifier's own clock, not its charge on the critical path --
+            # under --fast the stage is hidden inside the hangover and reads 0
+            assert t["work_ms"]["emotion"] > 0, f"turn {n}: emotion never ran"
+        # a stage can never be charged more than it actually cost; if it is, the
+        # critical-path walk is charging the listener for somebody else's work
+        for k, w in t["work_ms"].items():
+            assert t["stage_ms"][k + "_ms"] <= w + 1.0, (
+                f"turn {n}: {k} charged {t['stage_ms'][k + '_ms']}ms of {w}ms of work")
+        # a speculated turn started its decode before the endpointer fired, so
+        # it cannot have waited on dispatch
+        if t["speculated"]:
+            assert t["stage_ms"]["asr_final_dispatch_ms"] == 0, (
+                f"turn {n}: served speculatively but paid dispatch")
 
         if t["cue"]:
             assert t["cue_gap_ms"] < t["gap_ms"], (
@@ -723,6 +988,13 @@ def main():
                     help="use every wav in this directory as the user turns")
     ap.add_argument("--no-emotion", action="store_true",
                     help="ablation: skip the classifier entirely, speak everything neutral")
+    ap.add_argument("--fast", action="store_true",
+                    help="run the decode, the classifier, the LM and the TTS inside the "
+                         "endpointer's hangover instead of after it")
+    ap.add_argument("--arm", type=float, default=EARLY_ARM_MS,
+                    help="--fast: silence before the speculative pipeline starts, ms")
+    ap.add_argument("--final-model", default=ASR_MODEL,
+                    help="faster-whisper model for the final decode (default base.en)")
     a = ap.parse_args()
     if a.cmd == "devices":
         import sounddevice as sd  # noqa: PLC0415
@@ -736,7 +1008,8 @@ def main():
             raise SystemExit(f"no wavs in {a.prompt_wav_dir}")
     kw = dict(device=a.device, mic=a.mic, tts_backend=a.tts, use_cue=not a.no_cue,
               parallel_emotion=a.emotion_parallel, prompt_wavs=wavs,
-              save_wavs=a.save_wavs, no_emotion=a.no_emotion)
+              save_wavs=a.save_wavs, no_emotion=a.no_emotion, fast=a.fast,
+              arm_ms=a.arm, final_model=a.final_model)
     if a.cmd == "selfcheck":
         selfcheck(n_turns=a.n if a.n < 20 else 3, **kw)
     else:
